@@ -6,10 +6,12 @@ import { Rating } from "@/components/Rating";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAgentContext } from "@/lib/agents";
+import { useServices } from "@/lib/services";
 import type { Review } from "@/lib/types";
 
 export function ReviewList() {
   const { query, setQuery, askMode, setAskMode, reviewsVersion, editReview, removeReview } = useUi();
+  const { api } = useServices();
   const [reviews, setReviews] = useState<Review[]>([]);
   const { agent: searchAgent, ask } = useAsk();
   // The box keeps the last question asked, so coming back from a cited
@@ -21,10 +23,10 @@ export function ReviewList() {
     if (q.trim()) ask(q.trim());
   };
 
-  const load = useCallback(async (q: string, signal?: AbortSignal) => {
-    const res = await fetch(`/api/reviews?q=${encodeURIComponent(q.trim())}`, { signal });
-    setReviews(await res.json());
-  }, []);
+  const load = useCallback(
+    async (q: string, signal?: AbortSignal) => setReviews(await api.listReviews(q, signal)),
+    [api],
+  );
 
   // Debounced search; aborting stops a slow earlier response overwriting a newer one.
   // reviewsVersion bumps after a save or delete so the list reloads.

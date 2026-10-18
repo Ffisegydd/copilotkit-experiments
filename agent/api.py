@@ -10,8 +10,9 @@ REST and MCP are thin wrappers over src/reviews.py.
 
 This is the only process with the read-write `app_rw` credentials. The chat
 agent (main.py) runs separately on loopback and only ever gets `agent_ro`.
-This process also holds an `agent_ro` connection for the MCP `ask_reviews`
-tool, so SQL written by the model never runs on the read-write role.
+Reads (REST, MCP and the MCP `ask_reviews` graph) go through a second,
+`agent_ro` connection, so SQL written by the model never runs on the
+read-write role and only writes use `app_rw`.
 """
 
 import os
@@ -39,6 +40,7 @@ from langchain_core.language_models import BaseChatModel
 from src import reviews
 from src.context import AgentContext
 from src.db import ReadWriteDB, ReviewsDB
+from src.agent import TOOLS as CHAT_TOOLS
 from src.models import openai_model
 from src.search_agent import build_graph as build_search_graph
 from src.reviews import ReviewInput
@@ -81,33 +83,14 @@ def create_mcp(rw: ReadWriteDB, ro: ReviewsDB, token: str, model: BaseChatModel)
     )
 
     @mcp.tool(description=reviews.SEARCH_DESCRIPTION)
-    async def search_reviews(
-        query: Optional[str] = None,
-        title: Optional[str] = None,
-        author: Optional[str] = None,
-        genre: Optional[str] = None,
-        reviewer: Optional[str] = None,
-        exclude_titles: Optional[list[str]] = None,
-        exclude_authors: Optional[list[str]] = None,
-        exclude_genres: Optional[list[str]] = None,
-        exclude_reviewers: Optional[list[str]] = None,
-        min_rating: Optional[int] = None,
-        max_rating: Optional[int] = None,
-        limit: int = 20,
-    ) -> list[dict] | str:
-        rows = await reviews.search(
-            rw, query, title, author, genre, reviewer,
-            exclude_titles, exclude_authors, exclude_genres, exclude_reviewers,
-            min_rating, max_rating, limit,
-        )
-        if not rows and genre:
-            return await reviews.no_genre_match(rw, genre)
-        return rows
+    @reviews.with_search_args
+    async def search_reviews(**filters):
+        return await reviews.search_for_model(ro, **filters)
 
     @mcp.tool
     async def get_review(id: int) -> dict:
         """One review in full, by id."""
-        return await reviews.get(rw, id) or _not_found(id)
+        return await reviews.get(ro, id) or _not_found(id)
 
     @mcp.tool
     async def create_review(
@@ -218,7 +201,7 @@ def create_app(
     async def list_reviews(q: str = ""):
         """`q` is the search box: free text plus field filters
         (src/search_syntax.py). No `q` lists everything, newest first."""
-        return await reviews.search(rw, **parse_search(q), limit=100)
+        return await reviews.search(ro, **parse_search(q), limit=100)
 
     @app.post("/api/reviews", status_code=201)
     async def create_review(r: ReviewInput):
@@ -226,7 +209,7 @@ def create_app(
 
     @app.get("/api/reviews/{id}")
     async def get_review(id: int):
-        return await reviews.get(rw, id) or not_found()
+        return await reviews.get(ro, id) or not_found()
 
     @app.put("/api/reviews/{id}")
     async def update_review(id: int, r: ReviewInput):
@@ -240,7 +223,7 @@ def create_app(
     async def suggestions(req: SuggestionRequest):
         """Follow-up prompts for the chat, from the end of the conversation
         (src/suggestions.py)."""
-        return {"suggestions": await suggest(model, req)}
+        return {"suggestions": await suggest(model, CHAT_TOOLS, req)}
 
     @app.post("/agent/{path:path}")
     async def agent_run(path: str, request: Request):
@@ -284,7 +267,7 @@ _dist = Path(os.getenv("WEB_DIST", Path(__file__).parent.parent / "web" / "dist"
 
 app = create_app(
     ReadWriteDB(os.environ["APP_DATABASE_URL"]),
-    ReviewsDB(os.environ["AGENT_DATABASE_URL"], max_size=2),
+    ReviewsDB(os.environ["AGENT_DATABASE_URL"]),
     openai_model(),
     os.getenv("MCP_TOKEN") or None,
     os.getenv("AGENT_URL", "http://127.0.0.1:8123"),

@@ -3,7 +3,8 @@ import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Rating } from "@/components/Rating";
 import { LABELS, parseResult, summarise } from "@/components/ToolChip";
-import { searchAgent, useAgentUpdates } from "@/lib/agents";
+import { useAgentUpdates } from "@/lib/agents";
+import { useServices } from "@/lib/services";
 import type { Citation, SearchAnswer, SearchState } from "@/lib/types";
 
 // The search agent (agent/src/search_agent.py). It gets one question per run
@@ -26,10 +27,13 @@ export const reviewLink = (c: Pick<Citation, "id" | "quote">) =>
 /** Ask the search agent a question: a fresh one-question run, stopping any
  * run in progress. */
 export function useAsk() {
+  const { searchAgent } = useServices();
   useAgentUpdates(searchAgent);
   const ask = (question: string) => {
     if (searchAgent.isRunning) searchAgent.abortRun();
-    // A new thread per question: nothing carries over.
+    // A new thread per question: nothing carries over. The agent is a
+    // long-lived mutable object, not React state, and AG-UI has no setter.
+    // oxlint-disable-next-line react/immutability
     searchAgent.threadId = crypto.randomUUID();
     searchAgent.setMessages([{ id: crypto.randomUUID(), role: "user", content: question }]);
     searchAgent.setState({});
@@ -39,7 +43,7 @@ export function useAsk() {
 }
 
 export function AskPanel({ onExample }: { onExample: (q: string) => void }) {
-  const agent = searchAgent;
+  const { searchAgent: agent } = useServices();
   useAgentUpdates(agent);
   const question = agent.messages.find((m) => m.role === "user")?.content;
   const answer = (agent.state as SearchState | undefined)?.answer ?? null;

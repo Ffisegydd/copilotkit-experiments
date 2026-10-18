@@ -1,33 +1,41 @@
-import { HttpAgent, type AbstractAgent } from "@ag-ui/client";
+import type { AbstractAgent } from "@ag-ui/client";
 import { useEffect, useId, useReducer } from "react";
-
-// The two LangGraph graphs, spoken to over AG-UI. The Python agent process
-// serves them at / and /search; the api process (and Vite, in dev) proxies
-// /agent/* to it, so they're same-origin.
-//
-// Module-level, so they outlive page changes: the Ask panel's last answer is
-// still there when you come back from a cited review.
-export const chatAgent = new HttpAgent({ url: "/agent/" });
-export const searchAgent = new HttpAgent({ url: "/agent/search" });
+import { useServices } from "@/lib/services";
 
 // ---- Page context ----------------------------------------------------
 // What each mounted component tells the chat agent about the screen, sent as
 // RunAgentInput.context on every run (useAgUiRuntime's getRunContext).
 // CopilotKitMiddleware on the agent side puts it in the system prompt.
 
-type Context = { description: string; value: string };
-const contexts = new Map<string, Context>();
+export type ContextEntry = { description: string; value: string };
 
+export type PageContext = {
+  set(id: string, entry: ContextEntry): void;
+  delete(id: string): void;
+  /** Every entry currently on screen. */
+  entries(): ContextEntry[];
+};
+
+export function createPageContext(): PageContext {
+  const entries = new Map<string, ContextEntry>();
+  return {
+    set: (id, entry) => void entries.set(id, entry),
+    delete: (id) => void entries.delete(id),
+    entries: () => [...entries.values()],
+  };
+}
+
+/** Tells the chat agent something about the screen for as long as the
+ * calling component is mounted. */
 export function useAgentContext({ description, value }: { description: string; value: unknown }) {
+  const { pageContext } = useServices();
   const id = useId();
   const json = typeof value === "string" ? value : JSON.stringify(value);
   useEffect(() => {
-    contexts.set(id, { description, value: json });
-    return () => void contexts.delete(id);
-  }, [id, description, json]);
+    pageContext.set(id, { description, value: json });
+    return () => pageContext.delete(id);
+  }, [pageContext, id, description, json]);
 }
-
-export const runContext = (): Context[] => [...contexts.values()];
 
 /** Re-renders when a raw AG-UI agent's messages, state or run status change.
  * The chat goes through assistant-ui; this is for the Ask panel, which drives

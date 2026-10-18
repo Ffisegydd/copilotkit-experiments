@@ -27,6 +27,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from src import reviews
 from src.agent import run_readonly_sql, search_reviews
 from src.context import AgentContext
 from src.models import one_tool_call_at_a_time
@@ -80,18 +81,14 @@ async def answer(
     citations = citations or []
     retrieved = _retrieved(runtime.state["messages"])
     ids = sorted({c.id for c in citations if c.id in retrieved})
-    rows = await runtime.context.db.fetch(
-        "SELECT id, title, author, rating, review FROM reviews WHERE id = ANY(%(ids)s)",
-        {"ids": ids},
-    )
-    reviews = {r["id"]: r for r in rows}
+    found = await reviews.get_many(runtime.context.db, ids)
     markers = [int(m) for m in re.findall(r"\[(\d+)\]", text)]
 
     # Check each citation, keyed by its original 1-based marker.
     valid: dict[int, Citation] = {}
     problems: list[str] = []
     for n, c in enumerate(citations, start=1):
-        review = reviews.get(c.id)
+        review = found.get(c.id)
         if not review:
             problems.append(f"Citation {n}: review #{c.id} isn't in your search results.")
             continue

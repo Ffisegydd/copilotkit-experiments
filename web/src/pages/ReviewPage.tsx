@@ -4,6 +4,7 @@ import { useUi } from "@/components/AppShell";
 import { Rating } from "@/components/Rating";
 import { Button } from "@/components/ui/button";
 import { useAgentContext } from "@/lib/agents";
+import { useServices } from "@/lib/services";
 import type { Review } from "@/lib/types";
 
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
@@ -13,16 +14,18 @@ export function ReviewPage() {
   // Set when arriving from a search answer's citation: the passage to mark.
   const quote = useSearchParams()[0].get("quote");
   const { reviewsVersion, editReview, removeReview } = useUi();
+  const { api } = useServices();
   // undefined = loading, null = not found
   const [review, setReview] = useState<Review | null | undefined>(undefined);
 
   useEffect(() => {
     const ctrl = new AbortController();
-    fetch(`/api/reviews/${id}`, { signal: ctrl.signal })
-      .then(async (res) => setReview(res.ok ? await res.json() : null))
+    api
+      .getReview(id, ctrl.signal)
+      .then(setReview)
       .catch(() => {});
     return () => ctrl.abort();
-  }, [id, reviewsVersion]);
+  }, [api, id, reviewsVersion]);
 
   useAgentContext({
     description: "The review open on screen",

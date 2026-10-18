@@ -31,8 +31,10 @@ agent/                 all the Python: the agents and the api, Python 3.12, uv
   src/search_syntax.py parses search box filters (author:x, rating:>=4) into reviews.search() arguments
   tests/               pytest (`uv run pytest`)
 web/                   Vite + React Router + Tailwind/shadcn: UI only, built to static files
-  src/main.tsx         routes: / and /reviews/:id (api.py serves index.html for both)
-  src/lib/agents.ts    the two AG-UI HttpAgents, page context for the chat agent
+  src/main.tsx         composition root: builds the services below, and the routes / and /reviews/:id
+  src/lib/services.tsx the services (both AG-UI HttpAgents, page context, API client), provided to every component
+  src/lib/agents.ts    page context for the chat agent (useAgentContext), useAgentUpdates
+  src/lib/api.ts       the REST client: every fetch to /api goes through it
   src/lib/suggestions.ts  follow-up suggestions after each reply (assistant-ui SuggestionAdapter)
   src/components/AppShell.tsx  header, form, chat sidebar, navigation tools; form is bound to the agent's state
   src/pages/ReviewList.tsx     review list + search, with the Search/Ask toggle
@@ -117,7 +119,7 @@ The graph has three tools: the chat agent's `search_reviews` and `run_readonly_s
 
 `answer` checks the answer before the user sees it. Each cited review must have come back in one of this run's search or SQL results, each quote must appear in that review's text (ignoring case, whitespace runs and curly quotes), every citation needs a marker, every marker needs a citation, and every retrieved book the text names must be cited. If anything fails, the tool returns the list of problems to the model instead of an answer and the model tries again; the UI shows this as "Citations sent back". On the last step it keeps what checks out and strips the markers of what doesn't. Accepted answers go into the `answer` state key as `{text, citations}`, with each quote replaced by the review's own wording, and a `before_model` hook ends the run. The prompt also tells the model to paraphrase rather than quote in `text`, because only quotes in citations are checked.
 
-While the run is going, the panel lists each search as it happens (from the tool calls in `agent.messages`) and streams the answer text from the `answer` call's arguments (`onToolCallArgsEvent` gives the partially parsed JSON). Markers are hidden until the checked answer arrives, because their numbers can change. Then each `[n]` becomes a link that shows its quote on hover or focus, the cited reviews are listed below, and "Read in context" opens `/reviews/<id>?quote=…`, which marks the passage and scrolls to it. The agent is a module-level instance, so the answer is still there when you come back from a review (a full reload clears it).
+While the run is going, the panel lists each search as it happens (from the tool calls in `agent.messages`) and streams the answer text from the `answer` call's arguments (`onToolCallArgsEvent` gives the partially parsed JSON). Markers are hidden until the checked answer arrives, because their numbers can change. Then each `[n]` becomes a link that shows its quote on hover or focus, the cited reviews are listed below, and "Read in context" opens `/reviews/<id>?quote=…`, which marks the passage and scrolls to it. The agent is created once in `main.tsx` and provided to the page, so the answer is still there when you come back from a review (a full reload clears it).
 
 ## Migrations
 

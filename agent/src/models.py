@@ -12,14 +12,18 @@ from langchain.agents.middleware import ModelRequest, wrap_model_call
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
+# The one place the default lives; set OPENAI_MODEL to override it.
+DEFAULT_MODEL = "gpt-5.4"
+
 
 def openai_model() -> BaseChatModel:
-    """OpenAI's chat model, OPENAI_MODEL from the environment. Both processes
-    need it, so a missing OPENAI_API_KEY stops them at startup rather than
-    on the first chat."""
+    """OpenAI's chat model: OPENAI_MODEL from the environment, or
+    DEFAULT_MODEL when it's unset or empty (entrypoint.sh and compose pass it
+    through empty). Both processes need it, so a missing OPENAI_API_KEY stops
+    them at startup rather than on the first chat."""
     if not os.getenv("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY is not set.")
-    return ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-5.4"))
+    return ChatOpenAI(model=os.getenv("OPENAI_MODEL") or DEFAULT_MODEL)
 
 
 @wrap_model_call

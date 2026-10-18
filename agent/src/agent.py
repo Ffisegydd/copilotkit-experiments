@@ -69,30 +69,9 @@ EMPTY_DRAFT: Draft = {
 
 
 @tool(description=reviews.SEARCH_DESCRIPTION)
-async def search_reviews(
-    runtime: ToolRuntime[AgentContext],
-    query: Optional[str] = None,
-    title: Optional[str] = None,
-    author: Optional[str] = None,
-    genre: Optional[str] = None,
-    reviewer: Optional[str] = None,
-    exclude_titles: Optional[list[str]] = None,
-    exclude_authors: Optional[list[str]] = None,
-    exclude_genres: Optional[list[str]] = None,
-    exclude_reviewers: Optional[list[str]] = None,
-    min_rating: Optional[int] = None,
-    max_rating: Optional[int] = None,
-    limit: int = 20,
-) -> list[dict] | str:
-    db = runtime.context.db
-    rows = await reviews.search(
-        db, query, title, author, genre, reviewer,
-        exclude_titles, exclude_authors, exclude_genres, exclude_reviewers,
-        min_rating, max_rating, limit,
-    )
-    if not rows and genre:
-        return await reviews.no_genre_match(db, genre)
-    return rows
+@reviews.with_search_args
+async def search_reviews(runtime: ToolRuntime[AgentContext], **filters):
+    return await reviews.search_for_model(runtime.context.db, **filters)
 
 
 _SELECT_ONLY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
@@ -184,14 +163,18 @@ async def edit_review(runtime: ToolRuntime[AgentContext], id: int) -> Command | 
     if open_draft and open_draft.get("id") != id:
         what = f"review #{open_draft['id']}" if open_draft.get("id") else "a new review"
         return f"The form is already open for {what}. Ask the user to save or cancel it first."
-    rows = await runtime.context.db.fetch(
-        "SELECT id, title, author, genre, rating, review, reviewer FROM reviews WHERE id = %(id)s",
-        {"id": id},
-    )
-    if not rows:
+    r = await reviews.get(runtime.context.db, id)
+    if not r:
         return f"There is no review #{id}."
-    r = rows[0]
-    draft: Draft = {**r, "genre": r["genre"] or "", "reviewer": r["reviewer"] or ""}
+    draft: Draft = {
+        "id": r["id"],
+        "title": r["title"],
+        "author": r["author"],
+        "genre": r["genre"] or "",
+        "rating": r["rating"],
+        "review": r["review"],
+        "reviewer": r["reviewer"] or "",
+    }
     return Command(
         update={
             "draft": draft,
@@ -276,10 +259,14 @@ class _CopilotKitMiddleware(CopilotKitMiddleware):
         return super()._build_app_context_note(state, runtime_context)
 
 
+# The chat agent's own tools. The browser adds its frontend tools per run.
+TOOLS = [search_reviews, run_readonly_sql, update_draft, edit_review]
+
+
 def build_graph(model: BaseChatModel):
     return create_agent(
         model=model,
-        tools=[search_reviews, run_readonly_sql, update_draft, edit_review],
+        tools=TOOLS,
         middleware=[_CopilotKitMiddleware(), live_form_state, one_tool_call_at_a_time],
         state_schema=AgentState,
         context_schema=AgentContext,

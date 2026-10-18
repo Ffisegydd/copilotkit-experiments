@@ -31,7 +31,7 @@ For short chat turns like these, you'll hit OpenAI rate limits long before CPU, 
 
 Next come the SSE connections. Each in-flight turn holds an HTTP response open for as long as it runs, so set load balancer idle timeouts above your slowest turn.
 
-Postgres connections come last. Each copy opens up to 5 app connections and 4 agent connections, which is fine for tens of copies. Beyond that, put PgBouncer in front.
+Postgres connections come last. Each copy opens up to 4 `app_rw` connections (writes) and 8 `agent_ro` ones (4 for the agent process, 4 for reads in the api process), which is fine for tens of copies. Beyond that, put PgBouncer in front.
 
 ## Queueing, if you ever need it
 

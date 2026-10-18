@@ -6,10 +6,12 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { Thread } from "@/components/assistant-ui/elements/thread.aui";
 import { Button } from "@/components/ui/button";
 import { ReviewForm } from "@/components/ReviewForm";
-import { chatAgent, runContext, useAgentContext } from "@/lib/agents";
+import { useAgentContext } from "@/lib/agents";
+import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { diffSentences } from "@/lib/sentenceDiff";
-import { followUpAdapter, useFollowUpSuggestions } from "@/lib/suggestions";
+import { useServices } from "@/lib/services";
+import { createFollowUpAdapter, useFollowUpSuggestions } from "@/lib/suggestions";
 import { type AgentState, type Draft, type Proposal, type Review, draftFromReview, emptyDraft } from "@/lib/types";
 
 // What pages need from the shell. The search query lives here rather than in
@@ -37,11 +39,6 @@ const reviewIdFrom = (pathname: string) => {
   const m = pathname.match(/^\/reviews\/(\d+)/);
   return m ? Number(m[1]) : null;
 };
-
-async function fetchReview(id: number): Promise<Review | null> {
-  const res = await fetch(`/api/reviews/${id}`);
-  return res.ok ? res.json() : null;
-}
 
 // ---- Persistence -------------------------------------------------------
 // The conversation and the open form (with any pending suggestions) go to
@@ -103,9 +100,10 @@ function useChatOpen() {
 const RuntimeContext = createContext<AgUiAssistantRuntime | null>(null);
 
 function ChatRuntime({ children }: { children: ReactNode }) {
+  const { chatAgent, pageContext } = useServices();
   const runtime = useAgUiRuntime({
     agent: chatAgent,
-    getRunContext: runContext,
+    getRunContext: pageContext.entries,
     showThinking: false,
     adapters: { history: savedHistory },
   });
@@ -147,6 +145,26 @@ function settled(draft: Draft, proposal: Proposal | null): Proposal | null {
   return Object.keys(left).length ? left : null;
 }
 
+// The navigation tools' descriptions and schemas. Their execute functions
+// need the router, so they're added in Shell; the descriptions also go to
+// the suggestions endpoint, so follow-ups can offer what these tools do.
+const NAVIGATION_TOOLS = {
+  show_reviews: {
+    description:
+      "Take the user to the list of reviews. `search` is what goes in the search box: free text in " +
+      'web-search syntax plus field filters (title:x, author:"le guin", genre:horror, reviewer:sam, ' +
+      "rating:>=4; a leading - excludes, e.g. -genre:horror). Pass an empty string to clear " +
+      "the filter; omit it to keep the current one. Returns how many reviews are shown.",
+    parameters: { type: "object" as const, properties: { search: { type: "string" as const } } },
+  },
+  open_review: {
+    description: "Show one review on its own page, by id. Use this when the user wants to see or read a review.",
+    parameters: { type: "object" as const, properties: { id: { type: "integer" as const } }, required: ["id"] },
+  },
+};
+
+const NAVIGATION_TOOL_INFO = Object.entries(NAVIGATION_TOOLS).map(([name, t]) => ({ name, description: t.description }));
+
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <ChatRuntime>
@@ -157,6 +175,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
 function Shell({ children }: { children: ReactNode }) {
   const runtime = useContext(RuntimeContext)!;
+  const { api, pageContext } = useServices();
   const aui = useAui();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -197,14 +216,14 @@ function Shell({ children }: { children: ReactNode }) {
     if (!draft) return;
     if (!draft.rating) return setError("Pick a rating");
     setSaving(true);
-    const res = await fetch(draft.id ? `/api/reviews/${draft.id}` : "/api/reviews", {
-      method: draft.id ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(draft),
-    });
-    setSaving(false);
-    if (!res.ok) return setError((await res.json()).error ?? "Save failed");
-    const saved: Review = await res.json();
+    let saved: Review;
+    try {
+      saved = await api.saveReview(draft);
+    } catch (e) {
+      return setError(e instanceof ApiError ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
     setDraft(null);
     reviewsChanged();
     if (!draft.id) navigate(`/reviews/${saved.id}`);
@@ -214,7 +233,7 @@ function Shell({ children }: { children: ReactNode }) {
 
   const removeReview = async (r: Review) => {
     if (!confirm(`Delete your review of "${r.title}"?`)) return;
-    await fetch(`/api/reviews/${r.id}`, { method: "DELETE" });
+    await api.deleteReview(r.id);
     if (draft?.id === r.id) setDraft(null);
     reviewsChanged();
     if (viewingId === r.id) navigate("/");
@@ -239,12 +258,7 @@ function Shell({ children }: { children: ReactNode }) {
   // happen in one run.
   const toolkit = defineToolkit({
     show_reviews: {
-      description:
-        "Take the user to the list of reviews. `search` is what goes in the search box: free text in " +
-        'web-search syntax plus field filters (title:x, author:"le guin", genre:horror, reviewer:sam, ' +
-        "rating:>=4; a leading - excludes, e.g. -genre:horror). Pass an empty string to clear " +
-        "the filter; omit it to keep the current one. Returns how many reviews are shown.",
-      parameters: { type: "object", properties: { search: { type: "string" } } },
+      ...NAVIGATION_TOOLS.show_reviews,
       execute: async ({ search }: { search?: string }) => {
         const q = (search ?? query).trim();
         if (search !== undefined) setQuery(search);
@@ -253,18 +267,16 @@ function Shell({ children }: { children: ReactNode }) {
         if (!q) return "Showing the full list of reviews.";
         // Same request the list page makes, so the model hears about an empty
         // result instead of announcing a list the user can't see.
-        const res = await fetch(`/api/reviews?q=${encodeURIComponent(q)}`);
-        const titles = ((await res.json()) as Review[]).map((r) => r.title);
+        const titles = (await api.listReviews(q)).map((r) => r.title);
         return titles.length
           ? `Showing ${titles.length} reviews matching "${q}": ${titles.slice(0, 10).join(", ")}${titles.length > 10 ? ", …" : ""}.`
           : `No reviews match "${q}"; the list on screen is empty. Try different words.`;
       },
     },
     open_review: {
-      description: "Show one review on its own page, by id. Use this when the user wants to see or read a review.",
-      parameters: { type: "object", properties: { id: { type: "integer" } }, required: ["id"] },
+      ...NAVIGATION_TOOLS.open_review,
       execute: async ({ id }: { id: number }) => {
-        const r = await fetchReview(id);
+        const r = await api.getReview(id);
         if (!r) return `There is no review #${id}.`;
         navigate(`/reviews/${id}`);
         return `Showing review #${id}: "${r.title}" by ${r.author}.`;
@@ -286,6 +298,10 @@ function Shell({ children }: { children: ReactNode }) {
 
   // Before the first message, a fixed set for the screen; after each reply,
   // follow-ups the model wrote for it.
+  const followUpAdapter = useMemo(
+    () => createFollowUpAdapter({ api, getContext: pageContext.entries, tools: NAVIGATION_TOOL_INFO }),
+    [api, pageContext],
+  );
   const followUps = useFollowUpSuggestions(runtime, followUpAdapter);
   const suggestions = useMemo(
     () =>

@@ -40,7 +40,7 @@ services:
         condition: service_completed_successfully
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
       APP_DATABASE_URL: postgresql://app_rw:app_rw_pw@db:5432/books
       AGENT_DATABASE_URL: postgresql://agent_ro:agent_ro_pw@db:5432/books
       MCP_TOKEN: ${MCP_TOKEN:-}

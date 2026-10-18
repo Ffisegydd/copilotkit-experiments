@@ -9,7 +9,7 @@ set -euo pipefail
 cd /app/agent
 env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/nonexistent \
   OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
-  OPENAI_MODEL="${OPENAI_MODEL:-gpt-5.4}" \
+  OPENAI_MODEL="${OPENAI_MODEL:-}" \
   AGENT_DATABASE_URL="$AGENT_DATABASE_URL" \
   setpriv --reuid=agent --regid=agent --clear-groups --no-new-privs \
   /app/agent/.venv/bin/python main.py &
@@ -20,7 +20,7 @@ env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/nonexistent \
   WEB_DIST=/app/web/dist \
   AGENT_URL=http://127.0.0.1:8123 \
   OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
-  OPENAI_MODEL="${OPENAI_MODEL:-gpt-5.4}" \
+  OPENAI_MODEL="${OPENAI_MODEL:-}" \
   APP_DATABASE_URL="$APP_DATABASE_URL" \
   AGENT_DATABASE_URL="$AGENT_DATABASE_URL" \
   MCP_TOKEN="${MCP_TOKEN:-}" \

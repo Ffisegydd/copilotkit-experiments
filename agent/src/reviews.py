@@ -5,7 +5,8 @@ The REST API and the MCP server (api.py) and the chat agent's tools
 ReviewsDB; writes need a ReadWriteDB, which only the api process has.
 """
 
-from typing import Optional
+import inspect
+from typing import Callable, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -14,7 +15,7 @@ from src.db import MAX_ROWS, ReadWriteDB, ReviewsDB
 COLUMNS = "id, title, author, genre, rating, review, reviewer, created_at, updated_at"
 
 # Shared by the agent's and the MCP server's search tool, which take the same
-# arguments as search() below.
+# arguments as search() below (see with_search_args).
 SEARCH_DESCRIPTION = """Search saved book reviews, best matches first (each row has a `score`).
 
 `query` is free text matched against title, author, genre, reviewer name
@@ -101,6 +102,36 @@ async def search(
     return [{**r, "score": round(r["score"], 3)} for r in rows]
 
 
+async def search_for_model(db: ReviewsDB, **filters) -> list[dict] | str:
+    """search(), for a model to call: a genre filter that matches nothing gets
+    the list of genres that exist, so the model can retry, instead of []."""
+    rows = await search(db, **filters)
+    if not rows and filters.get("genre"):
+        return await no_genre_match(db, filters["genre"])
+    return rows
+
+
+def with_search_args(fn: Callable) -> Callable:
+    """Give a tool function `fn(..., **filters)` search()'s arguments.
+
+    LangChain and FastMCP both build a tool's schema from its function's
+    signature, so the agent's and the MCP server's search tools declare
+    search()'s arguments (minus `db`) instead of repeating them. `fn` keeps
+    its own leading parameters, like LangChain's injected `runtime`."""
+    own = [p for p in inspect.signature(fn).parameters.values() if p.kind is not p.VAR_KEYWORD]
+    filters = [
+        p.replace(kind=p.KEYWORD_ONLY) for name, p in inspect.signature(search).parameters.items() if name != "db"
+    ]
+    returns = list[dict] | str
+    fn.__signature__ = inspect.Signature(own + filters, return_annotation=returns)
+    fn.__annotations__ = {
+        **{k: v for k, v in search.__annotations__.items() if k != "db"},
+        **fn.__annotations__,
+        "return": returns,
+    }
+    return fn
+
+
 async def no_genre_match(db: ReviewsDB, genre: str) -> str:
     """What a search tool says when a genre filter matched nothing, so the
     model can retry with a genre that exists."""
@@ -111,6 +142,12 @@ async def no_genre_match(db: ReviewsDB, genre: str) -> str:
 async def get(db: ReviewsDB, id: int) -> dict | None:
     rows = await db.fetch(f"SELECT {COLUMNS} FROM reviews WHERE id = %(id)s", {"id": id})
     return rows[0] if rows else None
+
+
+async def get_many(db: ReviewsDB, ids: list[int]) -> dict[int, dict]:
+    """The reviews with these ids, by id. Ids that don't exist are missing."""
+    rows = await db.fetch(f"SELECT {COLUMNS} FROM reviews WHERE id = ANY(%(ids)s)", {"ids": ids})
+    return {r["id"]: r for r in rows}
 
 
 async def create(db: ReadWriteDB, r: ReviewInput) -> dict:
