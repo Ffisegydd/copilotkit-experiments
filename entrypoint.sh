@@ -3,7 +3,7 @@
 # If either exits, the container exits.
 set -euo pipefail
 
-[ -n "${OPENAI_API_KEY:-}" ] || echo "[entrypoint] WARNING: OPENAI_API_KEY is not set; the agents will fail."
+[ -n "${OPENAI_API_KEY:-}" ] || { echo "[entrypoint] OPENAI_API_KEY is not set; set it in .env." >&2; exit 1; }
 [ -n "${MCP_TOKEN:-}" ] || echo "[entrypoint] MCP_TOKEN is not set; the MCP server at /mcp is off."
 
 cd /app/agent

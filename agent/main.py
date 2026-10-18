@@ -1,4 +1,5 @@
-"""Composition root: builds the agents' dependencies and serves the graphs
+"""Composition root: builds the agents' dependencies (the database and the
+model) and serves the graphs
 over AG-UI: the chat helper at `/` and the one-shot search agent (the list
 page's "Ask" toggle) at `/search`."""
 
@@ -10,10 +11,13 @@ from ag_ui_langgraph import add_langgraph_fastapi_endpoint
 from copilotkit import LangGraphAGUIAgent
 from fastapi import FastAPI
 
-from src.agent import graph
-from src.search_agent import graph as search_graph
+from langchain_core.language_models import BaseChatModel
+
+from src.agent import build_graph as build_chat_graph
+from src.search_agent import build_graph as build_search_graph
 from src.context import AgentContext
 from src.db import ReviewsDB
+from src.models import openai_model
 
 
 class StatelessAGUIAgent(LangGraphAGUIAgent):
@@ -75,7 +79,7 @@ def tool_results_after_calls(messages: list) -> list:
     return ordered
 
 
-def create_app(context: AgentContext) -> FastAPI:
+def create_app(context: AgentContext, model: BaseChatModel) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         await context.db.open()
@@ -93,7 +97,7 @@ def create_app(context: AgentContext) -> FastAPI:
     agui_agent = StatelessAGUIAgent(
         name="book_helper",
         description="Answers questions about book reviews and helps fill in the review form.",
-        graph=graph,
+        graph=build_chat_graph(model),
     )
     agui_agent.agent_context = context
     add_langgraph_fastapi_endpoint(app=app, agent=agui_agent, path="/")
@@ -101,14 +105,14 @@ def create_app(context: AgentContext) -> FastAPI:
     search_agent = StatelessAGUIAgent(
         name="review_search",
         description="Answers one question about the reviews, with citations.",
-        graph=search_graph,
+        graph=build_search_graph(model),
     )
     search_agent.agent_context = context
     add_langgraph_fastapi_endpoint(app=app, agent=search_agent, path="/search")
     return app
 
 
-app = create_app(AgentContext(db=ReviewsDB(os.environ["AGENT_DATABASE_URL"])))
+app = create_app(AgentContext(db=ReviewsDB(os.environ["AGENT_DATABASE_URL"])), openai_model())
 
 
 if __name__ == "__main__":

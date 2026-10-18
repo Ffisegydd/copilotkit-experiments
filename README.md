@@ -24,6 +24,7 @@ agent/                 all the Python: the agents and the api, Python 3.12, uv
   src/agent.py         chat agent: tools, state, system prompt, live-form middleware
   src/search_agent.py  Ask agent: one question, searches, a citation-checked answer
   src/context.py       AgentContext, the graph's runtime context (holds the DB)
+  src/models.py        the chat model, built once per process by main.py and api.py and passed in
   src/db.py            ReviewsDB (read-only Postgres client) and ReadWriteDB (api process only)
   src/reviews.py       every query on `reviews`; REST, MCP and the agent's tools all wrap it
   src/search_syntax.py parses search box filters (author:x, rating:>=4) into reviews.search() arguments

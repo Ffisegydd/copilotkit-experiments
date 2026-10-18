@@ -22,12 +22,14 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRequest, before_model, wrap_model_call
 from langchain.messages import AIMessage, HumanMessage, ToolMessage
 from langchain.tools import ToolRuntime, tool
+from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from src.agent import model, run_readonly_sql, search_reviews
+from src.agent import run_readonly_sql, search_reviews
 from src.context import AgentContext
+from src.models import one_tool_call_at_a_time
 
 # Model calls per question, including the one that calls `answer`.
 MAX_STEPS = 8
@@ -244,13 +246,14 @@ citation a marker in the text. If the reviews don't answer the question,
 say so plainly and cite nothing.
 """
 
-graph = create_agent(
-    model=model,
-    tools=[search_reviews, run_readonly_sql, answer],
-    middleware=[stop_after_answer, require_tool_calls],
-    state_schema=SearchState,
-    context_schema=AgentContext,
-    # Only needed during a run; main.StatelessAGUIAgent clears it afterwards.
-    checkpointer=MemorySaver(),
-    system_prompt=SYSTEM_PROMPT,
-)
+def build_graph(model: BaseChatModel):
+    return create_agent(
+        model=model,
+        tools=[search_reviews, run_readonly_sql, answer],
+        middleware=[stop_after_answer, require_tool_calls, one_tool_call_at_a_time],
+        state_schema=SearchState,
+        context_schema=AgentContext,
+        # Only needed during a run; main.StatelessAGUIAgent clears it afterwards.
+        checkpointer=MemorySaver(),
+        system_prompt=SYSTEM_PROMPT,
+    )

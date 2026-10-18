@@ -32,9 +32,14 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from pydantic import ValidationError
 
+from langchain.messages import HumanMessage
+from langchain_core.language_models import BaseChatModel
+
 from src import reviews
 from src.context import AgentContext
 from src.db import ReadWriteDB, ReviewsDB
+from src.models import openai_model
+from src.search_agent import build_graph as build_search_graph
 from src.reviews import ReviewInput
 from src.search_syntax import parse_search
 
@@ -62,7 +67,9 @@ def first_error(e: ValidationError | RequestValidationError) -> str:
     return f"{field}: {err['msg']}" if field else err["msg"]
 
 
-def create_mcp(rw: ReadWriteDB, ro: ReviewsDB, token: str) -> FastMCP:
+def create_mcp(rw: ReadWriteDB, ro: ReviewsDB, token: str, model: BaseChatModel) -> FastMCP:
+    ask_graph = build_search_graph(model)
+
     mcp = FastMCP(
         "book-reviews",
         instructions="Search, read and edit the book reviews in this app. "
@@ -144,20 +151,15 @@ def create_mcp(rw: ReadWriteDB, ro: ReviewsDB, token: str) -> FastMCP:
         e.g. "which books did reviewers find slow to start but worth it?".
         Returns `text` with [n] markers and `citations`, each a review and a
         quote checked against that review's text. Takes 10-30 seconds."""
-        # Imported here so the REST API starts without an OpenAI key.
-        from langchain.messages import HumanMessage
-
-        from src.search_agent import graph
-
         thread_id = str(uuid4())
         try:
-            state = await graph.ainvoke(
+            state = await ask_graph.ainvoke(
                 {"messages": [HumanMessage(question)]},
                 {"configurable": {"thread_id": thread_id}},
                 context=AgentContext(db=ro),
             )
         finally:
-            await graph.checkpointer.adelete_thread(thread_id)
+            await ask_graph.checkpointer.adelete_thread(thread_id)
         return state.get("answer") or {"text": "No answer.", "citations": []}
 
     return mcp
@@ -175,9 +177,14 @@ def _not_found(id: int):
 
 
 def create_app(
-    rw: ReadWriteDB, ro: ReviewsDB, mcp_token: str | None, agent_url: str, web_dist: Path | None
+    rw: ReadWriteDB,
+    ro: ReviewsDB,
+    model: BaseChatModel,
+    mcp_token: str | None,
+    agent_url: str,
+    web_dist: Path | None,
 ) -> FastAPI:
-    mcp_app = create_mcp(rw, ro, mcp_token).http_app(path="/mcp", stateless_http=True) if mcp_token else None
+    mcp_app = create_mcp(rw, ro, mcp_token, model).http_app(path="/mcp", stateless_http=True) if mcp_token else None
     # No read timeout: a run streams for as long as the agent works.
     agent = httpx.AsyncClient(base_url=agent_url, timeout=httpx.Timeout(10, read=None))
 
@@ -270,6 +277,7 @@ _dist = Path(os.getenv("WEB_DIST", Path(__file__).parent.parent / "web" / "dist"
 app = create_app(
     ReadWriteDB(os.environ["APP_DATABASE_URL"]),
     ReviewsDB(os.environ["AGENT_DATABASE_URL"], max_size=2),
+    openai_model(),
     os.getenv("MCP_TOKEN") or None,
     os.getenv("AGENT_URL", "http://127.0.0.1:8123"),
     # In dev Vite serves the web app and proxies the rest here, so there may be no build.

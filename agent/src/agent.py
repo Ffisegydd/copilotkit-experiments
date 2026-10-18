@@ -13,13 +13,13 @@ The web app also registers frontend tools (show_reviews, open_review) that
 move the user between pages. CopilotKitMiddleware adds them to the model's
 tools.
 
-Dependencies (the database) aren't imported here. They arrive per run as the
-graph's runtime context (`AgentContext`, see src/context.py), and tools read
-them from `runtime.context`.
+Dependencies aren't imported here. The model is passed to `build_graph` by
+the process that serves the graph (src/models.py). The database arrives per
+run as the graph's runtime context (`AgentContext`, see src/context.py), and
+tools read it from `runtime.context`.
 """
 
 import json
-import os
 import re
 from typing import Optional, TypedDict
 
@@ -29,12 +29,13 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRequest, wrap_model_call
 from langchain.messages import SystemMessage, ToolMessage
 from langchain.tools import ToolRuntime, tool
-from langchain_openai import ChatOpenAI
+from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
 from src import reviews
 from src.context import AgentContext
+from src.models import one_tool_call_at_a_time
 
 
 class Draft(TypedDict, total=False):
@@ -236,12 +237,6 @@ The user saves the form themselves with the Save button. Never claim a review
 has been saved.
 """
 
-model = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5.4"),
-    model_kwargs={"parallel_tool_calls": False},
-)
-
-
 @wrap_model_call
 async def live_form_state(request: ModelRequest, handler):
     """Show the model the form as it is right now, as the last message.
@@ -281,13 +276,14 @@ class _CopilotKitMiddleware(CopilotKitMiddleware):
         return super()._build_app_context_note(state, runtime_context)
 
 
-graph = create_agent(
-    model=model,
-    tools=[search_reviews, run_readonly_sql, update_draft, edit_review],
-    middleware=[_CopilotKitMiddleware(), live_form_state],
-    state_schema=AgentState,
-    context_schema=AgentContext,
-    # Only needed during a run; main.StatelessAGUIAgent clears it afterwards.
-    checkpointer=MemorySaver(),
-    system_prompt=SYSTEM_PROMPT,
-)
+def build_graph(model: BaseChatModel):
+    return create_agent(
+        model=model,
+        tools=[search_reviews, run_readonly_sql, update_draft, edit_review],
+        middleware=[_CopilotKitMiddleware(), live_form_state, one_tool_call_at_a_time],
+        state_schema=AgentState,
+        context_schema=AgentContext,
+        # Only needed during a run; main.StatelessAGUIAgent clears it afterwards.
+        checkpointer=MemorySaver(),
+        system_prompt=SYSTEM_PROMPT,
+    )
