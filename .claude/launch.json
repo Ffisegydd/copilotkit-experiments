@@ -27,6 +27,15 @@
         "cd web && exec npx next dev --port 3001"
       ],
       "port": 3001
+    },
+    {
+      "name": "ui-spike",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd ui-spike && exec npx vite --port 5173 --strictPort"
+      ],
+      "port": 5173
     }
   ]
 }

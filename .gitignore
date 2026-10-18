@@ -5,3 +5,4 @@ node_modules/
 __pycache__/
 *.tsbuildinfo
 next-env.d.ts
+dist/
