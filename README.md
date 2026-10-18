@@ -173,7 +173,7 @@ Vite serves the app with hot reload and proxies `/api`, `/agent` and `/mcp` to t
 
 ## Known limits
 
-- The agent is stateless: the browser sends the full conversation and form state with every request, and the agent deletes the thread's checkpoint when each run ends (`StatelessAGUIAgent` in `agent/main.py`). You can run as many copies as you like. The browser's copy is the only one, so `AppShell` keeps the conversation (through an assistant-ui history adapter) and any open form in `sessionStorage`: they survive a reload but not closing the tab. See [docs/scaling.md](docs/scaling.md).
+- The agent is stateless: the browser sends the full conversation and form state with every request, and the agent deletes the thread's checkpoint when each run ends (`StatelessAGUIAgent` in `agent/main.py`). You can run as many copies as you like. The browser's copy is the only one, so `AppShell` keeps the conversation (through an assistant-ui history adapter) and any open form in `sessionStorage`: they survive a reload but not closing the tab. See [docs/scaling.md](docs/scaling.md). [docs/lessons.md](docs/lessons.md) collects what we learned building this with AG-UI.
 - The DB passwords in the first migration and `docker-compose.yml` are demo values.
 - The Python side is pinned to what CopilotKit's own `langgraph-fastapi` example uses (`copilotkit==0.1.96`, `ag-ui-langgraph==0.0.44`). Their example notes that `ag-ui-langgraph` 0.0.43 breaks with this `copilotkit` version.
 - `@assistant-ui/react-ag-ui` is pre-1.0 and releases every few days. It depends on `@ag-ui/client` 0.0.x, not the 1.x line, so `web/` pins that.
