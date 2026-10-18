@@ -1,6 +1,6 @@
 import { AssistantRuntimeProvider, AuiConfig, AuiProvider, Suggestions, Tools, defineToolkit, useAui, useAuiState, type ThreadMessage } from "@assistant-ui/react";
 import { useAgUiRuntime, useAgUiSetState, useAgUiState, type AgUiAssistantRuntime } from "@assistant-ui/react-ag-ui";
-import { MessageSquareIcon, XIcon } from "lucide-react";
+import { MessageSquareIcon, RotateCcwIcon, XIcon } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { Thread } from "@/components/assistant-ui/elements/thread.aui";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ReviewForm } from "@/components/ReviewForm";
 import { ToolChip } from "@/components/ToolChip";
 import { chatAgent, runContext, useAgentContext } from "@/lib/agents";
+import { cn } from "@/lib/utils";
 import { diffSentences } from "@/lib/sentenceDiff";
 import { type AgentState, type Draft, type Proposal, type Review, draftFromReview, emptyDraft } from "@/lib/types";
 
@@ -78,6 +79,26 @@ const savedHistory = {
   },
   async append() {}, // the whole thread is written on every change instead
 };
+
+// Whether the chat is open, remembered per browser. The first time, it opens
+// only where it fits beside the page; on a phone it would cover the whole app.
+const OPEN_KEY = "book-reviews:chat-open";
+
+function useChatOpen() {
+  const [open, setOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem(OPEN_KEY);
+      if (saved !== null) return saved === "1";
+    } catch {}
+    return matchMedia("(min-width: 900px)").matches;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(OPEN_KEY, open ? "1" : "0");
+    } catch {}
+  }, [open]);
+  return [open, setOpen] as const;
+}
 
 const RuntimeContext = createContext<AgUiAssistantRuntime | null>(null);
 
@@ -162,9 +183,7 @@ function Shell({ children }: { children: ReactNode }) {
   const [askMode, setAskMode] = useState(false);
   const [reviewsVersion, setReviewsVersion] = useState(0);
   const reviewsChanged = useCallback(() => setReviewsVersion((v) => v + 1), []);
-  // Open the chat by default only where it fits beside the page; on a phone
-  // it would cover the whole app.
-  const [chatOpen, setChatOpen] = useState(() => matchMedia("(min-width: 900px)").matches);
+  const [chatOpen, setChatOpen] = useChatOpen();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -288,19 +307,15 @@ function Shell({ children }: { children: ReactNode }) {
 
   return (
     <UiContext.Provider value={{ query, setQuery, askMode, setAskMode, reviewsVersion, editReview, removeReview }}>
-      <div className={chatOpen ? "min-[900px]:grid min-[900px]:grid-cols-[1fr_420px]" : ""}>
-        <main className="mx-auto w-full max-w-3xl space-y-5 px-4 pt-8 pb-16">
+      {/* On wide screens the open chat sits beside the page; narrower, it covers it. */}
+      <div className={cn("transition-[padding] duration-200", chatOpen && "min-[900px]:pr-[420px]")}>
+        <main className="mx-auto w-full max-w-3xl space-y-5 px-4 pt-8 pb-24">
           <header className="flex items-center justify-between gap-3">
             <h1 className="text-2xl font-semibold">
               <Link to="/">Book Reviews</Link>
             </h1>
             <div className="flex gap-2">
               {!draft && <Button onClick={() => setDraft(emptyDraft())}>New review</Button>}
-              {!chatOpen && (
-                <Button variant="outline" size="icon" onClick={() => setChatOpen(true)} aria-label="Open the assistant">
-                  <MessageSquareIcon />
-                </Button>
-              )}
             </div>
           </header>
 
@@ -321,25 +336,41 @@ function Shell({ children }: { children: ReactNode }) {
           {children}
         </main>
 
-        {chatOpen && (
-          <aside className="bg-background fixed inset-0 z-20 flex flex-col border-l min-[900px]:sticky min-[900px]:top-0 min-[900px]:h-dvh">
-            <header className="flex items-center justify-between border-b px-3 py-2">
-              <Button variant="ghost" size="sm" onClick={clearChat} disabled={agentBusy || !hasMessages}>
-                Clear
-              </Button>
-              <span className="text-sm font-medium">Review helper</span>
-              <Button variant="ghost" size="icon-sm" onClick={() => setChatOpen(false)} aria-label="Close the assistant">
-                <XIcon />
-              </Button>
-            </header>
-            <div className="min-h-0 flex-1">
-              <AuiProvider extends={aui} config={config}>
-                <Thread components={{ ToolFallback: ToolChip, ToolGroup: ({ children }) => <>{children}</> }} autoFocus={false} />
-              </AuiProvider>
-            </div>
-          </aside>
-        )}
       </div>
+
+      {/* Stays mounted while closed, so the conversation keeps its scroll
+          position and a run in progress carries on. */}
+      <aside
+        aria-label="Review helper"
+        aria-hidden={!chatOpen}
+        inert={!chatOpen}
+        className={cn(
+          "bg-background fixed inset-y-0 right-0 z-30 flex w-full flex-col border-l shadow-xl transition-transform duration-200 min-[900px]:w-[420px] min-[900px]:shadow-none",
+          !chatOpen && "translate-x-full",
+        )}
+      >
+        <header className="flex items-center gap-2 border-b px-4 py-2.5">
+          <MessageSquareIcon className="text-primary size-4" />
+          <span className="flex-1 text-sm font-semibold">Review helper</span>
+          <Button variant="ghost" size="sm" onClick={clearChat} disabled={agentBusy || !hasMessages} title="Start a new conversation">
+            <RotateCcwIcon /> New chat
+          </Button>
+          <Button variant="ghost" size="icon-sm" onClick={() => setChatOpen(false)} aria-label="Close the assistant">
+            <XIcon />
+          </Button>
+        </header>
+        <div className="min-h-0 flex-1">
+          <AuiProvider extends={aui} config={config}>
+            <Thread components={{ ToolFallback: ToolChip, ToolGroup: ({ children }) => <>{children}</> }} autoFocus={false} />
+          </AuiProvider>
+        </div>
+      </aside>
+
+      {!chatOpen && (
+        <Button size="lg" className="fixed right-5 bottom-5 z-20 rounded-full shadow-lg" onClick={() => setChatOpen(true)}>
+          <MessageSquareIcon /> {agentBusy ? "Assistant is working…" : "Ask the assistant"}
+        </Button>
+      )}
     </UiContext.Provider>
   );
 }

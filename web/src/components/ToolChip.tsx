@@ -184,7 +184,7 @@ export const ToolChip: ToolCallMessagePartComponent = ({ toolName: name, args: r
           (complete ? "" : "animate-pulse")
         }
       >
-        <span className="text-foreground">{complete ? done : running}</span>
+        <span className="text-foreground shrink-0">{complete ? done : running}</span>
         {detail && <span className="truncate">{detail}</span>}
       </summary>
       <div className="mt-2 space-y-2 rounded-lg border p-3 text-xs">
