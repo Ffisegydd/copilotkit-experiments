@@ -21,7 +21,7 @@ RUN useradd --system --no-create-home --shell /usr/sbin/nologin api \
 WORKDIR /app/agent
 COPY agent/pyproject.toml agent/uv.lock ./
 RUN UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-install-project --no-dev
-COPY agent/main.py agent/api.py ./
+COPY agent/main.py agent/api.py agent/deps.py ./
 COPY agent/src ./src
 
 COPY --from=web /web/dist /app/web/dist

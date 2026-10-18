@@ -21,6 +21,7 @@ db/migrations/         dbmate migrations, applied in order by the `migrate` serv
 agent/                 all the Python: the agents and the api, Python 3.12, uv
   main.py              agent process: builds AgentContext, serves both graphs over AG-UI (loopback)
   api.py               api process, the public one: the web build, /api/reviews, /api/suggestions, /mcp, and /agent/* proxied to main.py
+  deps.py              the api process's services, injected into its REST routes and MCP tools with Depends
   src/agent.py         chat agent: tools, state, system prompt, live-form middleware
   src/search_agent.py  Ask agent: one question, searches, a citation-checked answer
   src/context.py       AgentContext, the graph's runtime context (holds the DB)
