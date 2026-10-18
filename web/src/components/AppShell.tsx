@@ -6,7 +6,6 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { Thread } from "@/components/assistant-ui/elements/thread.aui";
 import { Button } from "@/components/ui/button";
 import { ReviewForm } from "@/components/ReviewForm";
-import { ToolChip } from "@/components/ToolChip";
 import { chatAgent, runContext, useAgentContext } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 import { diffSentences } from "@/lib/sentenceDiff";
@@ -361,7 +360,7 @@ function Shell({ children }: { children: ReactNode }) {
         </header>
         <div className="min-h-0 flex-1">
           <AuiProvider extends={aui} config={config}>
-            <Thread components={{ ToolFallback: ToolChip, ToolGroup: ({ children }) => <>{children}</> }} autoFocus={false} />
+            <Thread />
           </AuiProvider>
         </div>
       </aside>

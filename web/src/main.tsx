@@ -2,7 +2,6 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router";
 import { AppShell } from "@/components/AppShell";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { ReviewList } from "@/pages/ReviewList";
 import { ReviewPage } from "@/pages/ReviewPage";
 import "./index.css";
@@ -13,14 +12,12 @@ if (matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
-      <TooltipProvider>
-        <AppShell>
-          <Routes>
-            <Route path="/" element={<ReviewList />} />
-            <Route path="/reviews/:id" element={<ReviewPage />} />
-          </Routes>
-        </AppShell>
-      </TooltipProvider>
+      <AppShell>
+        <Routes>
+          <Route path="/" element={<ReviewList />} />
+          <Route path="/reviews/:id" element={<ReviewPage />} />
+        </Routes>
+      </AppShell>
     </BrowserRouter>
   </StrictMode>,
 );

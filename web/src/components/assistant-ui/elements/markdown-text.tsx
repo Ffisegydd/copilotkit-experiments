@@ -1,94 +1,25 @@
-"use client";
-
+// Assistant text as Markdown. Replies are prose, sometimes with a list or a
+// table; the agents don't write code, so code blocks get no header or copy button.
 import "@assistant-ui/react-markdown/styles/dot.css";
 
 import {
-  type CodeHeaderProps,
   MarkdownTextPrimitive,
-  type MarkdownTextPrimitiveProps,
   memoizeMarkdownComponents,
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { type FC, memo, useMemo, useRef } from "react";
-import type { TextMessagePartProps } from "@assistant-ui/react";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { memo } from "react";
 
-import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
-import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { cn } from "@/lib/utils";
 
-type MarkdownTextProps = Partial<TextMessagePartProps> & {
-  components?: Parameters<typeof memoizeMarkdownComponents>[0];
-  componentsByLanguage?: MarkdownTextPrimitiveProps["componentsByLanguage"];
-};
-
-const useShallowStable = <T extends Record<string, unknown> | undefined>(
-  value: T,
-): T => {
-  const ref = useRef(value);
-  if (value !== ref.current) {
-    const prev = ref.current;
-    const stable =
-      value !== undefined &&
-      prev !== undefined &&
-      Object.keys(prev).length === Object.keys(value).length &&
-      Object.keys(value).every((key) => prev[key] === value[key]);
-    if (!stable) ref.current = value;
-  }
-  return ref.current;
-};
-
-const MarkdownTextImpl: FC<MarkdownTextProps> = ({
-  components,
-  componentsByLanguage,
-}) => {
-  const stableComponents = useShallowStable(components);
-  const stableComponentsByLanguage = useShallowStable(componentsByLanguage);
-  const markdownComponents = useMemo(() => {
-    if (!stableComponents) return defaultComponents;
-    return {
-      ...defaultComponents,
-      ...memoizeMarkdownComponents(stableComponents),
-    };
-  }, [stableComponents]);
-
-  return (
-    <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
-      className="aui-md"
-      components={markdownComponents}
-      componentsByLanguage={stableComponentsByLanguage}
-      defer
-    />
-  );
-};
-
-export const MarkdownText = memo(MarkdownTextImpl);
-
-const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
-  const { isCopied, copyToClipboard } = useCopyToClipboard();
-  const onCopy = () => {
-    if (!code || isCopied) return;
-    copyToClipboard(code);
-  };
-
-  return (
-    <div className="aui-code-header-root border-border/50 bg-muted/50 mt-3 flex items-center justify-between rounded-t-xl border border-b-0 px-3.5 py-1.5 text-xs">
-      <span className="aui-code-header-language text-muted-foreground font-medium lowercase">
-        {language}
-      </span>
-      <TooltipIconButton tooltip="Copy" onClick={onCopy}>
-        {!isCopied && (
-          <CopyIcon className="animate-in zoom-in-75 fade-in duration-150" />
-        )}
-        {isCopied && (
-          <CheckIcon className="animate-in zoom-in-50 fade-in duration-200 ease-out" />
-        )}
-      </TooltipIconButton>
-    </div>
-  );
-};
+export const MarkdownText = memo(() => (
+  <MarkdownTextPrimitive
+    remarkPlugins={[remarkGfm]}
+    className="aui-md"
+    components={defaultComponents}
+    defer
+  />
+));
 
 const defaultComponents = memoizeMarkdownComponents({
   h1: ({ className, ...props }) => (
@@ -252,7 +183,7 @@ const defaultComponents = memoizeMarkdownComponents({
   pre: ({ className, ...props }) => (
     <pre
       className={cn(
-        "aui-md-pre border-border/50 bg-muted/30 overflow-x-auto rounded-t-none rounded-b-xl border border-t-0 p-3.5 text-[13px] leading-relaxed",
+        "aui-md-pre border-border/50 bg-muted/30 my-3 overflow-x-auto rounded-xl border p-3.5 text-[13px] leading-relaxed",
         className,
       )}
       {...props}
@@ -271,5 +202,4 @@ const defaultComponents = memoizeMarkdownComponents({
       />
     );
   },
-  CodeHeader,
 });

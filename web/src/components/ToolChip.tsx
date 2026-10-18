@@ -167,8 +167,8 @@ function ToolBody({ name, args, result }: { name: string; args: Args; result: un
 }
 
 // Every tool call in the chat, the agent's and the browser's: a one-line chip
-// that expands to show what the tool was asked and what it returned. Passed to
-// <Thread> as its ToolFallback.
+// that expands to show what the tool was asked and what it returned. The Thread
+// renders one for every tool call.
 export const ToolChip: ToolCallMessagePartComponent = ({ toolName: name, args: rawArgs, result, status }) => {
   const [running, done] = LABELS[name] ?? [`Running ${name}…`, `Ran ${name}`];
   const complete = status.type !== "running" && result !== undefined;
