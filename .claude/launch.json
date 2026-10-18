@@ -1,0 +1,32 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "agent",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd agent && set -a && source ../.env && set +a && AGENT_DATABASE_URL=postgresql://agent_ro:agent_ro_pw@localhost:5433/books exec uv run python main.py"
+      ],
+      "port": 8123
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd agent && set -a && source ../.env && set +a && APP_DATABASE_URL=postgresql://app_rw:app_rw_pw@localhost:5433/books AGENT_DATABASE_URL=postgresql://agent_ro:agent_ro_pw@localhost:5433/books exec uv run python api.py"
+      ],
+      "port": 8124
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd web && exec npx next dev --port 3001"
+      ],
+      "port": 3001
+    }
+  ]
+}

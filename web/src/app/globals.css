@@ -1,0 +1,455 @@
+/* App palette. Prefixed with --app- because CopilotKit's chat defines its own
+   shadcn-style variables (--muted, --border, --accent…) on [data-copilotkit],
+   and unprefixed names would resolve to CopilotKit's values inside the chat. */
+:root {
+  --app-bg: #f6f5f2;
+  --app-card: #ffffff;
+  --app-surface: #ece9e3; /* raised / hovered areas, chat bubbles */
+  --app-text: #1d1c1a;
+  --app-muted: #6b6760;
+  --app-border: #e3e0da;
+  --app-accent: #2f5d50;
+  --app-accent-text: #ffffff;
+  --app-danger: #a33a2c;
+  --app-star: #d39b1f;
+  --app-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --app-bg: #171716;
+    --app-card: #222220;
+    --app-surface: #2c2c29;
+    --app-text: #ecebe8;
+    --app-muted: #a19d95;
+    --app-border: #36352f;
+    --app-accent: #7fb8a4;
+    --app-accent-text: #10201b;
+    --app-danger: #e38878;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: var(--app-text);
+  font: 15px/1.5 var(--app-font);
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+main h1 { font-size: 26px; margin: 0; }
+main h2 { font-size: 18px; margin: 0; }
+main h3 { font-size: 17px; margin: 0; }
+
+/* Controls are scoped to <main> so they don't restyle the chat sidebar. */
+main button {
+  font: inherit;
+  border: 1px solid var(--app-accent);
+  background: var(--app-accent);
+  color: var(--app-accent-text);
+  border-radius: 6px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+main button.secondary { background: transparent; color: var(--app-text); border-color: var(--app-border); }
+main button.danger { background: transparent; color: var(--app-danger); border-color: var(--app-border); }
+main button:disabled { opacity: 0.6; cursor: default; }
+
+.card {
+  background: var(--app-card);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.list { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 12px; }
+.item-head { display: flex; justify-content: space-between; gap: 12px; }
+.meta { margin: 2px 0 0; color: var(--app-muted); font-size: 14px; }
+.body { margin: 10px 0 12px; white-space: pre-wrap; }
+.rating { color: var(--app-star); letter-spacing: 1px; white-space: nowrap; }
+.dim { opacity: 0.25; }
+.empty { color: var(--app-muted); }
+
+.actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+.form { display: grid; gap: 14px; }
+.form-head { display: flex; align-items: center; justify-content: space-between; }
+.pill { font-size: 12px; color: var(--app-muted); border: 1px solid var(--app-border); border-radius: 99px; padding: 2px 10px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+
+main label { display: grid; gap: 4px; font-size: 13px; color: var(--app-muted); }
+main input, main textarea {
+  font: inherit;
+  color: var(--app-text);
+  background: var(--app-bg);
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+main textarea { resize: vertical; }
+
+.stars { border: 0; padding: 0; margin: 0; display: flex; gap: 2px; align-items: center; }
+.stars legend { font-size: 13px; color: var(--app-muted); margin-bottom: 4px; padding: 0; }
+main .stars button {
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--app-border);
+}
+main .stars button.on { color: var(--app-star); }
+
+.error { color: var(--app-danger); margin: 0; }
+
+main a { color: inherit; text-decoration: none; }
+main h1 a:hover, main h3 a:hover { text-decoration: underline; }
+/* A link styled like a secondary button (e.g. "Read" on list cards). */
+main a.button {
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  padding: 7px 14px;
+}
+main a.button:hover { background: var(--app-surface); }
+
+/* Previews on the list; the full text is on the review's own page. */
+.clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.detail { display: grid; gap: 12px; margin-top: 4px; }
+.detail .back { color: var(--app-muted); font-size: 14px; justify-self: start; }
+.detail .back:hover { color: var(--app-text); }
+.detail h2 { font-size: 22px; }
+.detail .body { font-size: 16px; line-height: 1.65; margin: 16px 0; }
+.detail .card > .meta { margin-bottom: 14px; }
+/* With a form open above, give the page below some room. */
+.form + .detail, .form + .search { margin-top: 20px; }
+
+.search { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
+.search input { flex: 1; min-width: 0; }
+.search .meta { margin: 0; white-space: nowrap; }
+
+/* ---- Tracked changes: the agent's suggestions (components/ReviewForm.tsx) */
+:root { --app-ins: #2f7d4f; --app-ins-bg: #e3f1e7; --app-del-bg: #f6e1dd; }
+@media (prefers-color-scheme: dark) {
+  :root { --app-ins: #8fd1a8; --app-ins-bg: #1f3a2a; --app-del-bg: #3d2420; }
+}
+.suggest-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: var(--app-surface);
+  border-radius: 8px;
+}
+.suggest-actions { display: flex; gap: 8px; }
+main .suggest-actions button { padding: 4px 12px; font-size: 13px; }
+
+main ins { text-decoration: none; background: var(--app-ins-bg); color: var(--app-ins); border-radius: 3px; padding: 0 2px; }
+main del { background: var(--app-del-bg); color: var(--app-danger); border-radius: 3px; padding: 0 2px; }
+
+.suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--app-text);
+}
+.suggestion-label { color: var(--app-muted); }
+.stars .suggestion { margin-left: 12px; }
+.stars .suggestion ins { font-size: 16px; letter-spacing: 1px; }
+
+.change-buttons { display: inline-flex; gap: 2px; vertical-align: 1px; margin-left: 4px; }
+main .change-buttons button {
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid var(--app-border);
+  color: var(--app-muted);
+}
+main .change-buttons button.accept:hover:not(:disabled) { color: var(--app-ins); border-color: var(--app-ins); }
+main .change-buttons button.reject:hover:not(:disabled) { color: var(--app-danger); border-color: var(--app-danger); }
+
+.tracked { display: grid; gap: 4px; }
+.tracked-label { font-size: 13px; color: var(--app-muted); }
+.tracked-text {
+  white-space: pre-wrap;
+  padding: 8px 10px;
+  line-height: 1.7;
+  background: var(--app-bg);
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+}
+
+/* Search / Ask toggle in front of the search box. */
+.mode { display: flex; border: 1px solid var(--app-border); border-radius: 6px; overflow: hidden; flex: none; }
+main .mode button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--app-muted);
+  padding: 7px 12px;
+}
+main .mode button[aria-pressed="true"] { background: var(--app-accent); color: var(--app-accent-text); }
+
+/* ---- Ask: the search agent's answer (components/AskPanel.tsx) ---------- */
+.ask { margin-top: 20px; }
+.ask-empty { margin-top: 20px; display: grid; gap: 10px; }
+.ask-empty .meta { margin: 0; }
+.ask-examples { display: flex; flex-wrap: wrap; gap: 8px; }
+main .ask-examples button { font-size: 14px; padding: 5px 12px; text-align: left; }
+
+.ask-answer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.ask-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--app-muted);
+  background: var(--app-surface);
+  border-radius: 99px;
+  padding: 3px 10px;
+}
+.ask-steps li::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--app-accent);
+}
+.ask-steps li.running::before { animation: chip-pulse 1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .ask-steps li.running::before { animation: none; } }
+.ask-text { margin: 0; font-size: 16px; line-height: 1.65; }
+
+/* [n] markers: a numbered link with the quote on hover or focus. */
+.cite { position: relative; }
+main .cite > a, .cite-n {
+  display: inline-block;
+  min-width: 1.5em;
+  margin: 0 1px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: center;
+  vertical-align: 2px;
+  color: var(--app-accent);
+  background: var(--app-surface);
+  border-radius: 4px;
+}
+.cite-n { margin: 0 8px 0 0; vertical-align: 3px; }
+main .cite > a:hover, main .cite > a:focus-visible { background: var(--app-accent); color: var(--app-accent-text); outline: none; }
+.cite-pop {
+  position: absolute;
+  z-index: 10;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(320px, 80vw);
+  display: none;
+  gap: 4px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--app-card);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.12);
+}
+.cite:hover .cite-pop, .cite:focus-within .cite-pop { display: grid; }
+.cite-pop .meta { margin: 0; font-size: 12px; }
+
+.quote {
+  margin: 12px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--app-accent);
+  color: var(--app-text);
+  font-style: italic;
+}
+
+/* The cited passage on a review's own page. */
+.detail mark {
+  background: color-mix(in srgb, var(--app-star) 30%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* ---- CopilotKit chat sidebar ------------------------------------------
+   Map CopilotKit's theme variables onto the app palette so the sidebar
+   follows the app in light and dark mode. :root raises specificity above
+   CopilotKit's own `[data-copilotkit]` and `.dark [data-copilotkit]`. */
+:root [data-copilotkit],
+:root.dark [data-copilotkit] {
+  --background: var(--app-bg);
+  --foreground: var(--app-text);
+  --card: var(--app-card);
+  --card-foreground: var(--app-text);
+  --popover: var(--app-card);
+  --popover-foreground: var(--app-text);
+  --primary: var(--app-accent);
+  --primary-foreground: var(--app-accent-text);
+  --secondary: var(--app-surface);
+  --secondary-foreground: var(--app-text);
+  --muted: var(--app-surface);
+  --muted-foreground: var(--app-muted);
+  --accent: var(--app-surface);
+  --accent-foreground: var(--app-text);
+  --border: var(--app-border);
+  --input: var(--app-border);
+  --ring: var(--app-accent);
+  --cpk-font-sans: var(--app-font);
+  --cpk-default-font-family: var(--app-font);
+}
+
+/* Agent tool calls (see components/ToolChip.tsx): a one-line chip that
+   expands into what the tool was asked and what it returned. */
+.tool-call { margin: 2px 0; max-width: 100%; }
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--app-muted);
+  background: var(--app-surface);
+  border-radius: 99px;
+  padding: 3px 10px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.tool-chip::-webkit-details-marker { display: none; }
+.tool-chip::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--app-accent);
+}
+/* Disclosure caret after the text, turned when open. */
+.tool-chip::after { content: "›"; flex: none; transition: transform 0.15s; }
+.tool-call[open] > .tool-chip::after { transform: rotate(90deg); }
+.tool-chip:hover { color: var(--app-text); }
+.tool-chip:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.tool-detail {
+  color: var(--app-text);
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.tool-chip.running::before { animation: chip-pulse 1s ease-in-out infinite; }
+@keyframes chip-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) {
+  .tool-chip.running::before { animation: none; }
+  .tool-chip::after { transition: none; }
+}
+
+.tool-body {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 4px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-card);
+}
+.tool-body p { margin: 0; }
+.tool-muted { color: var(--app-muted); }
+.tool-text { white-space: pre-wrap; }
+.tool-args { display: grid; gap: 2px; margin: 0; }
+.tool-args > div { display: flex; gap: 8px; }
+.tool-args dt { color: var(--app-muted); min-width: 64px; }
+.tool-args dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.tool-hits { margin: 0; padding-left: 20px; display: grid; gap: 2px; }
+.tool-hits a { color: var(--app-accent); text-decoration: none; }
+.tool-hits a:hover { text-decoration: underline; }
+.tool-code {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--app-surface);
+  font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tool-table { overflow-x: auto; }
+.tool-table table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.tool-table th, .tool-table td {
+  text-align: left;
+  padding: 3px 10px 3px 0;
+  border-bottom: 1px solid var(--app-border);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-table th { color: var(--app-muted); font-weight: 500; }
+
+/* Tool-call-only assistant messages: drop their copy/inspect toolbar so a
+   run reads as a tight stack of chips followed by the reply. */
+.copilotKitAssistantMessage:has(> .tool-call) > .tool-call ~ :not(.tool-call) { display: none; }
+
+/* Chat header with a Clear button (see AppShell). Mirrors CopilotKit's own
+   header: title centred, Clear and close on either side. */
+.chat-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-bg);
+}
+.chat-header > :last-child { justify-self: end; }
+.chat-clear {
+  justify-self: start;
+  font: inherit;
+  font-size: 13px;
+  color: var(--app-muted);
+  background: transparent;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.chat-clear:hover:not(:disabled) { color: var(--app-text); background: var(--app-surface); }
+.chat-clear:disabled { opacity: 0.45; cursor: default; }

@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: books
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d books"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # Applies db/migrations/*.sql that haven't run yet, then exits. dbmate
+  # records each one in the schema_migrations table.
+  migrate:
+    image: ghcr.io/amacneil/dbmate:2.28.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/books?sslmode=disable
+      DBMATE_MIGRATIONS_DIR: /db/migrations
+      DBMATE_NO_DUMP_SCHEMA: "true"
+    volumes:
+      - ./db/migrations:/db/migrations:ro
+    command: ["--wait", "up"]
+
+  # One container: Next.js (UI + CopilotKit runtime), the Python api (reviews
+  # REST + MCP) and the LangGraph agent. Only port 3000 is published; the api
+  # and the agent listen on 127.0.0.1 inside the container.
+  app:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4}
+      APP_DATABASE_URL: postgresql://app_rw:app_rw_pw@db:5432/books
+      AGENT_DATABASE_URL: postgresql://agent_ro:agent_ro_pw@db:5432/books
+      MCP_TOKEN: ${MCP_TOKEN:-}
+    ports:
+      - "3000:3000"
+    # Immutable filesystem: neither process can write anywhere except tmpfs.
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+      - /app/web/.next/cache:mode=1777
+
+volumes:
+  pgdata:
