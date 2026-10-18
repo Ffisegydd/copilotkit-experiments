@@ -2,6 +2,7 @@
 
   /                 the web app, built by Vite into web/dist
   /api/reviews      REST for the browser
+  /api/suggestions  follow-up prompts for the chat
   /mcp              an MCP server for other agents
   /agent/*          AG-UI runs, streamed through to the agent process
 
@@ -42,6 +43,7 @@ from src.models import openai_model
 from src.search_agent import build_graph as build_search_graph
 from src.reviews import ReviewInput
 from src.search_syntax import parse_search
+from src.suggestions import SuggestionRequest, suggest
 
 
 class SharedTokenVerifier(TokenVerifier):
@@ -233,6 +235,12 @@ def create_app(
     @app.delete("/api/reviews/{id}", status_code=204)
     async def delete_review(id: int):
         return Response(status_code=204) if await reviews.delete(rw, id) else not_found()
+
+    @app.post("/api/suggestions")
+    async def suggestions(req: SuggestionRequest):
+        """Follow-up prompts for the chat, from the end of the conversation
+        (src/suggestions.py)."""
+        return {"suggestions": await suggest(model, req)}
 
     @app.post("/agent/{path:path}")
     async def agent_run(path: str, request: Request):

@@ -9,6 +9,7 @@ import { ReviewForm } from "@/components/ReviewForm";
 import { chatAgent, runContext, useAgentContext } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 import { diffSentences } from "@/lib/sentenceDiff";
+import { followUpAdapter, useFollowUpSuggestions } from "@/lib/suggestions";
 import { type AgentState, type Draft, type Proposal, type Review, draftFromReview, emptyDraft } from "@/lib/types";
 
 // What pages need from the shell. The search query lives here rather than in
@@ -283,23 +284,28 @@ function Shell({ children }: { children: ReactNode }) {
     ].join("; "),
   });
 
+  // Before the first message, a fixed set for the screen; after each reply,
+  // follow-ups the model wrote for it.
+  const followUps = useFollowUpSuggestions(runtime, followUpAdapter);
   const suggestions = useMemo(
     () =>
-      draft
-        ? [
-            { title: "Fill in the rest", label: "of the form", prompt: "Fill in whatever is still empty in the form." },
-            { title: "Tighten the review", label: "shorter and clearer", prompt: "Tighten up the review text." },
-          ]
-        : viewingId
+      hasMessages
+        ? followUps.map((s) => s.prompt)
+        : draft
           ? [
-              { title: "Similar books", label: "to this one", prompt: "Find reviews of books similar to this one." },
-              { title: "Edit this review", label: "in the form", prompt: "Open this review in the editor." },
+              { title: "Fill in the rest", label: "of the form", prompt: "Fill in whatever is still empty in the form." },
+              { title: "Tighten the review", label: "shorter and clearer", prompt: "Tighten up the review text." },
             ]
-          : [
-              { title: "Best-rated genre", label: "across all reviews", prompt: "Which genre gets the best ratings?" },
-              { title: "Start a review", label: "with my help", prompt: "Help me write a new review." },
-            ],
-    [!!draft, viewingId],
+          : viewingId
+            ? [
+                { title: "Similar books", label: "to this one", prompt: "Find reviews of books similar to this one." },
+                { title: "Edit this review", label: "in the form", prompt: "Open this review in the editor." },
+              ]
+            : [
+                { title: "Best-rated genre", label: "across all reviews", prompt: "Which genre gets the best ratings?" },
+                { title: "Start a review", label: "with my help", prompt: "Help me write a new review." },
+              ],
+    [hasMessages, followUps, !!draft, viewingId],
   );
 
   const config = AuiConfig({ tools: Tools({ toolkit }), suggestions: Suggestions(suggestions) });

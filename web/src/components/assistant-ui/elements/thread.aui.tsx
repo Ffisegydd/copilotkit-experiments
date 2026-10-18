@@ -46,7 +46,7 @@ export const Thread: FC = () => (
               <ArrowDownIcon />
             </Button>
           </ThreadPrimitive.ScrollToBottom>
-          <AuiIf condition={(s) => s.thread.isEmpty && s.composer.isEmpty}>
+          <AuiIf condition={(s) => !s.thread.isRunning && s.composer.isEmpty}>
             <Suggestions />
           </AuiIf>
           <Composer />
@@ -65,7 +65,8 @@ const ThreadMessage: FC = () => {
   return empty ? null : <AssistantMessage />;
 };
 
-// The per-screen suggestions from AppShell, shown before the first message.
+// AppShell's suggestions: the per-screen set before the first message, then
+// the model's follow-ups to the latest reply. Hidden while the agent works.
 const Suggestions: FC = () => (
   <div className="flex flex-col">
     <ThreadPrimitive.Suggestions>

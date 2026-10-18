@@ -10,7 +10,7 @@ The app started as Next.js plus CopilotKit's React hooks and Node runtime in fro
 
 Swapping the frontend for Vite, `@ag-ui/client` and assistant-ui (commits `b6321a4`, `ca961d1`) removed the Node runtime, Next.js and three-process container. The image now runs two Python processes, and the diff removed about 25k lines and added 7k (most of both is lockfile churn). Nothing in the Python agent changed. That's the real argument for AG-UI: once both ends speak the protocol, the libraries on either side are replaceable.
 
-What CopilotKit did that we lost: it generated chat suggestions with the model after every reply. They're now a fixed set per screen. Nobody missed the generated ones.
+What CopilotKit did that we had to rebuild: it generated chat suggestions with the model after every reply. assistant-ui has a `SuggestionAdapter` for this, but `useAgUiRuntime` ignores it (only the local runtime runs one), so we call the adapter ourselves when a run settles and keep the prompt on the server behind `/api/suggestions`. Adapters an integration doesn't wire are a recurring theme with these pre-1.0 runtimes: read what the runtime passes through before assuming a documented capability works.
 
 The Python `copilotkit` package stays. `CopilotKitMiddleware` is what reads the frontend tools and page context out of each AG-UI request and puts them in front of the model. Only the browser half of CopilotKit is gone.
 

@@ -20,18 +20,20 @@ db/migrations/         dbmate migrations, applied in order by the `migrate` serv
   ..._demo_reviews.sql       46 demo reviews
 agent/                 all the Python: the agents and the api, Python 3.12, uv
   main.py              agent process: builds AgentContext, serves both graphs over AG-UI (loopback)
-  api.py               api process, the public one: the web build, /api/reviews, /mcp, and /agent/* proxied to main.py
+  api.py               api process, the public one: the web build, /api/reviews, /api/suggestions, /mcp, and /agent/* proxied to main.py
   src/agent.py         chat agent: tools, state, system prompt, live-form middleware
   src/search_agent.py  Ask agent: one question, searches, a citation-checked answer
   src/context.py       AgentContext, the graph's runtime context (holds the DB)
   src/models.py        the chat model, built once per process by main.py and api.py and passed in
   src/db.py            ReviewsDB (read-only Postgres client) and ReadWriteDB (api process only)
   src/reviews.py       every query on `reviews`; REST, MCP and the agent's tools all wrap it
+  src/suggestions.py   follow-up prompts for the chat, behind /api/suggestions
   src/search_syntax.py parses search box filters (author:x, rating:>=4) into reviews.search() arguments
   tests/               pytest (`uv run pytest`)
 web/                   Vite + React Router + Tailwind/shadcn: UI only, built to static files
   src/main.tsx         routes: / and /reviews/:id (api.py serves index.html for both)
   src/lib/agents.ts    the two AG-UI HttpAgents, page context for the chat agent
+  src/lib/suggestions.ts  follow-up suggestions after each reply (assistant-ui SuggestionAdapter)
   src/components/AppShell.tsx  header, form, chat sidebar, navigation tools; form is bound to the agent's state
   src/pages/ReviewList.tsx     review list + search, with the Search/Ask toggle
   src/pages/ReviewPage.tsx     one review on its own page (?quote= marks a cited passage)
@@ -76,6 +78,14 @@ The list at `/` shows each review clipped to three lines; the title or Read open
 The agent moves you around with two frontend tools, an assistant-ui toolkit (`defineToolkit`) in `AppShell`: `open_review(id)` goes to a review's page, and `show_reviews(search?)` goes back to the list and optionally sets the search box. They run in the browser. assistant-ui sends their schemas as `RunAgentInput.tools`, `CopilotKitMiddleware` on the agent side adds them to the model's tools, and when the model calls one the run ends, the browser runs it, and the result ("Showing review #3 …") goes to the model on a follow-up run. Each page also tells the agent where you are through `useAgentContext` ([web/src/lib/agents.ts](web/src/lib/agents.ts)), which collects entries for `useAgUiRuntime`'s `getRunContext`, so "change this one to 4 stars" works on a review's page.
 
 `edit_review(id)` opens a saved review in the form. It's an agent-side tool, not a frontend one, because it changes `draft`, and an agent-side tool changes it and replies in the same run.
+
+## Suggestions
+
+Before the first message the chat offers a fixed pair of prompts for the screen (form open, review page, list). After each reply it shows three follow-ups the model wrote for that conversation. They come from assistant-ui's `SuggestionAdapter` interface ([web/src/lib/suggestions.ts](web/src/lib/suggestions.ts)), but `useAgUiRuntime` doesn't run suggestion adapters (only assistant-ui's local runtime does), so `useFollowUpSuggestions` calls it when a run settles and passes the result to `Suggestions()` in `AppShell`. A run that ends to hand a browser tool its call doesn't count; only a finished reply does.
+
+The adapter posts the last few messages and the chat's page context to `/api/suggestions`, which runs one structured-output call ([agent/src/suggestions.py](agent/src/suggestions.py)) on the same model the agents use. The prompt lives there and lists what the agent can actually do, so the endpoint can't be used as a general completion API and the suggestions stay within the agent's tools. We don't use assistant-ui's `createSuggestionAdapter`, because it builds the prompt in the browser and expects a `complete(prompt)` endpoint. Follow-ups aren't saved: after a reload they come back with the next reply.
+
+## Tool chips
 
 Every tool call shows in the chat as a one-line chip ([ToolChip.tsx](web/src/components/ToolChip.tsx), passed to `Thread` as its `ToolFallback`) that expands to the arguments and the result.
 
@@ -178,4 +188,3 @@ Vite serves the app with hot reload and proxies `/api`, `/agent` and `/mcp` to t
 - The DB passwords in the first migration and `docker-compose.yml` are demo values.
 - The Python side is pinned to what CopilotKit's own `langgraph-fastapi` example uses (`copilotkit==0.1.96`, `ag-ui-langgraph==0.0.44`). Their example notes that `ag-ui-langgraph` 0.0.43 breaks with this `copilotkit` version.
 - `@assistant-ui/react-ag-ui` is pre-1.0 and releases every few days. It depends on `@ag-ui/client` 0.0.x, not the 1.x line, so `web/` pins that.
-- Chat suggestions are a fixed set per screen (form open, review page, list), shown before the first message. CopilotKit generated them with the model after every reply.
