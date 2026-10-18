@@ -2,24 +2,22 @@
 
 The agent is stateless between requests. Every chat request from the browser carries the whole conversation (user messages, assistant replies, tool calls and their results) plus the current form state. The agent rebuilds context from that, answers, and forgets the thread. Any copy of the app can serve any request, so you scale out by running more copies behind a load balancer, with no sticky sessions and no shared session store.
 
-Checked against `@copilotkit/runtime@1.79.1`, `copilotkit==0.1.96` and `ag-ui-langgraph==0.0.44`.
+Checked against `@assistant-ui/react-ag-ui@0.0.70`, `@ag-ui/client@0.0.59`, `copilotkit==0.1.96` and `ag-ui-langgraph==0.0.44`.
 
 ## How a request flows
 
-1. The browser POSTs `RunAgentInput` to `/api/copilotkit/agent/default/run`: thread id, the full message list, the shared `state` (including `draft`), and the frontend context. It reads the reply as an SSE stream of AG-UI events.
-2. `CopilotRuntime` (Next.js) passes the run to `InMemoryAgentRunner`, which forwards it to the Python agent on `127.0.0.1:8123` and relays the events back.
+1. The browser POSTs `RunAgentInput` to `/agent/`: thread id, the full message list, the shared `state` (including `draft`), the frontend tools and the page context. It reads the reply as an SSE stream of AG-UI events.
+2. The api process (`agent/api.py`) streams the request through to the Python agent on `127.0.0.1:8123` and the events back. It keeps nothing.
 3. `ag-ui-langgraph` loads the thread's checkpoint (empty, because we never keep one), merges in the messages and state from the request, and runs the graph.
 4. When the run ends, `StatelessAGUIAgent.run` in `agent/main.py` deletes the thread's checkpoint.
 
 The graph still has a `MemorySaver` because `ag-ui-langgraph` calls `aget_state` during a run and fails without a checkpointer. It holds one thread per in-flight run and nothing after that.
 
-The runtime's `InMemoryAgentRunner` also keeps recent threads, so a reloaded tab can reattach to its conversation. That copy is optional, and it's capped in `route.ts` (200 threads, 50 runs per thread, 64 MB). If a request lands on a different copy, or after a restart, the cache is simply empty and the browser's copy is used instead.
-
 How I verified it: `docker compose restart app` mid-conversation, then a follow-up from the same tab, which recalled earlier details correctly. A scripted two-turn run against the agent endpoint showed zero stored threads after each turn, and the second turn still saw a rating edited by hand between turns.
 
 ## What statelessness costs
 
-A page reload can lose the chat, because the only durable copy lives in the tab's memory. The runtime's cache covers a reload only if the request reaches the same copy before eviction. If reloads matter, keep the messages in `localStorage` and restore them on load. That still needs no server storage.
+The only copy of a conversation lives in the browser. The web app keeps it in `sessionStorage`, so it survives a reload but not closing the tab; `localStorage` would keep it across tabs and restarts. Neither needs server storage. A reload in the middle of a run loses that run's reply, because nothing on the server can be reattached to.
 
 The client controls the history, so a modified browser could send invented assistant messages or fake tool results. That's acceptable here because nothing the agent can do depends on trusting history: the `agent_ro` role enforces database access in Postgres, and only the user can save. Don't base authorisation decisions on chat history.
 
@@ -37,7 +35,7 @@ Postgres connections come last. Each copy opens up to 5 app connections and 4 ag
 
 ## Queueing, if you ever need it
 
-CopilotKit has no built-in queue, but it doesn't force strict request-response either. The runtime's `AgentRunner` interface has `run`, `connect`, `isRunning` and `stop`. Because `connect` lets a client attach to a run it didn't start, a runner could put each run on a Postgres job table, have workers claim jobs with `FOR UPDATE SKIP LOCKED`, and stream their events back through `LISTEN`/`NOTIFY`. The browser would still see a stream; a queued run would just take longer to send `RUN_STARTED`.
+The api's `/agent/*` proxy is the natural place for one. Instead of streaming a run straight through, it could put the run on a Postgres job table, have workers claim jobs with `FOR UPDATE SKIP LOCKED`, and stream their events back through `LISTEN`/`NOTIFY`. The browser would still see a stream; a queued run would just take longer to send `RUN_STARTED`.
 
 Statelessness makes this simpler. The job row already contains everything a worker needs (the full `RunAgentInput`), so workers don't share any thread state. The only stored data is the run's event log, kept while the run is in flight.
 
@@ -45,4 +43,4 @@ LangGraph's own server (`langgraph-api`) has a Postgres-backed queue built in, w
 
 I wouldn't build either until the in-process semaphore stops being enough. That happens when you need backpressure across copies, fair ordering under load, or runs that outlive the HTTP request.
 
-Sources: [LangGraph standalone server](https://docs.langchain.com/langsmith/deploy-standalone-server), [MultitaskStrategy](https://reference.langchain.com/python/langgraph-sdk/auth/types/MultitaskStrategy), and the `@copilotkit/runtime` type definitions (`dist/v2/runtime/runner/*.d.mts`).
+Sources: [LangGraph standalone server](https://docs.langchain.com/langsmith/deploy-standalone-server) and [MultitaskStrategy](https://reference.langchain.com/python/langgraph-sdk/auth/types/MultitaskStrategy).

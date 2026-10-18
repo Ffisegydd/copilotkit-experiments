@@ -1,15 +1,14 @@
-"use client";
-
-import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useAgent } from "@copilotkit/react-core/v2";
+import { Link } from "react-router";
+import { Button } from "@/components/ui/button";
 import { Rating } from "@/components/Rating";
 import { LABELS, parseResult, summarise } from "@/components/ToolChip";
+import { searchAgent, useAgentUpdates } from "@/lib/agents";
 import type { Citation, SearchAnswer, SearchState } from "@/lib/types";
 
-// The search agent (agent/src/search_agent.py, "search" in the runtime). It
-// gets one question per run and no history: each ask replaces the last.
-export const SEARCH_AGENT = "search";
+// The search agent (agent/src/search_agent.py). It gets one question per run
+// and no history: each ask replaces the last. The page drives it directly
+// with @ag-ui/client; it isn't a chat, so assistant-ui isn't involved.
 
 const EXAMPLES = [
   "Which books did reviewers find slow to start but worth it?",
@@ -24,26 +23,24 @@ type Step = { id: string; name: string; detail: string | null; done: boolean };
 export const reviewLink = (c: Pick<Citation, "id" | "quote">) =>
   `/reviews/${c.id}${c.quote ? `?quote=${encodeURIComponent(c.quote)}` : ""}`;
 
-/** Ask the search agent a question. Returns the agent and a function that
- * starts a fresh one-question run, stopping any run in progress. */
+/** Ask the search agent a question: a fresh one-question run, stopping any
+ * run in progress. */
 export function useAsk() {
-  const { agent } = useAgent({ agentId: SEARCH_AGENT });
+  useAgentUpdates(searchAgent);
   const ask = (question: string) => {
-    if (agent.isRunning) agent.abortRun();
-    // A new thread per question: nothing carries over, and the runtime's
-    // per-thread cache never fills up.
-    agent.threadId = crypto.randomUUID();
-    agent.setMessages([{ id: crypto.randomUUID(), role: "user", content: question }]);
-    agent.setState({});
-    // Straight to the agent rather than copilotkit.runAgent: no frontend tools
-    // or app context to send, and no follow-up runs.
-    agent.runAgent().catch(() => {}); // failures are reported via onRunFailed
+    if (searchAgent.isRunning) searchAgent.abortRun();
+    // A new thread per question: nothing carries over.
+    searchAgent.threadId = crypto.randomUUID();
+    searchAgent.setMessages([{ id: crypto.randomUUID(), role: "user", content: question }]);
+    searchAgent.setState({});
+    searchAgent.runAgent().catch(() => {}); // failures are reported via onRunFailed
   };
-  return { agent, ask };
+  return { agent: searchAgent, ask };
 }
 
 export function AskPanel({ onExample }: { onExample: (q: string) => void }) {
-  const { agent } = useAgent({ agentId: SEARCH_AGENT });
+  const agent = searchAgent;
+  useAgentUpdates(agent);
   const question = agent.messages.find((m) => m.role === "user")?.content;
   const answer = (agent.state as SearchState | undefined)?.answer ?? null;
 
@@ -71,13 +68,13 @@ export function AskPanel({ onExample }: { onExample: (q: string) => void }) {
 
   if (!question) {
     return (
-      <div className="ask-empty">
-        <p className="meta">Ask a question and the agent will search the reviews and answer with quotes.</p>
-        <div className="ask-examples">
+      <div className="space-y-3">
+        <p className="text-muted-foreground text-sm">Ask a question and the agent will search the reviews and answer with quotes.</p>
+        <div className="flex flex-wrap gap-2">
           {EXAMPLES.map((q) => (
-            <button key={q} type="button" className="secondary" onClick={() => onExample(q)}>
+            <Button key={q} type="button" variant="outline" size="sm" onClick={() => onExample(q)}>
               {q}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -88,51 +85,49 @@ export function AskPanel({ onExample }: { onExample: (q: string) => void }) {
   const running = agent.isRunning;
 
   return (
-    <section className="ask" aria-live="polite" aria-busy={running}>
-      <div className="card ask-answer">
-        <ol className="ask-steps">
+    <section className="space-y-3" aria-live="polite" aria-busy={running}>
+      <div className="bg-card space-y-3 rounded-xl border p-5">
+        <ol className="text-muted-foreground space-y-1 text-sm">
           {steps.map((s) => (
-            <li key={s.id} className={s.done ? "" : "running"}>
-              <span>{(STEP_LABELS[s.name] ?? [s.name, s.name])[s.done ? 1 : 0]}</span>
-              {s.detail && <span className="tool-detail">{s.detail}</span>}
+            <li key={s.id} className={s.done ? "" : "animate-pulse"}>
+              <span className="text-foreground">{(STEP_LABELS[s.name] ?? [s.name, s.name])[s.done ? 1 : 0]}</span>
+              {s.detail && <span className="ml-2">{s.detail}</span>}
             </li>
           ))}
           {running && steps.every((s) => s.done) && (
-            <li className="running">{streamed === null ? (steps.length ? "Reading…" : "Thinking…") : "Writing the answer…"}</li>
+            <li className="animate-pulse">{streamed === null ? (steps.length ? "Reading…" : "Thinking…") : "Writing the answer…"}</li>
           )}
         </ol>
 
         {error ? (
-          <p className="error">{error}</p>
+          <p className="text-destructive">{error}</p>
         ) : running ? (
-          streamed && <p className="ask-text">{stripMarkers(streamed)}</p>
+          streamed && <p className="leading-relaxed">{stripMarkers(streamed)}</p>
         ) : answer ? (
           <AnswerText answer={answer} />
         ) : (
-          <p className="empty">The agent stopped without answering. Try asking again.</p>
+          <p className="text-muted-foreground">The agent stopped without answering. Try asking again.</p>
         )}
       </div>
 
       {!running && answer && answer.citations.length > 0 && (
-        <ol className="list ask-sources">
+        <ol className="space-y-3">
           {answer.citations.map((c) => (
-            <li key={c.n} id={`cite-${c.n}`} className="card">
-              <div className="item-head">
+            <li key={c.n} id={`cite-${c.n}`} className="bg-card space-y-3 rounded-xl border p-5">
+              <div className="flex justify-between gap-3">
                 <div>
-                  <h3>
-                    <span className="cite-n">{c.n}</span>
-                    <Link href={reviewLink(c)}>{c.title}</Link>
+                  <h3 className="font-semibold">
+                    <CiteN n={c.n} />
+                    <Link to={reviewLink(c)} className="hover:underline">{c.title}</Link>
                   </h3>
-                  <p className="meta">{c.author}</p>
+                  <p className="text-muted-foreground text-sm">{c.author}</p>
                 </div>
                 <Rating value={c.rating} />
               </div>
-              {c.quote && <blockquote className="quote">{c.quote}</blockquote>}
-              <div className="actions">
-                <Link className="button secondary" href={reviewLink(c)}>
-                  Read in context
-                </Link>
-              </div>
+              {c.quote && <blockquote className="border-primary border-l-2 pl-3 italic">{c.quote}</blockquote>}
+              <Button asChild variant="outline" size="sm">
+                <Link to={reviewLink(c)}>Read in context</Link>
+              </Button>
             </li>
           ))}
         </ol>
@@ -141,23 +136,36 @@ export function AskPanel({ onExample }: { onExample: (q: string) => void }) {
   );
 }
 
+const CiteN = ({ n }: { n: number }) => (
+  <span className="bg-primary text-primary-foreground mr-2 inline-grid size-5 place-items-center rounded-full align-[2px] text-[11px] font-semibold">
+    {n}
+  </span>
+);
+
 // The answer with each [n] as a link to its review. Hovering or focusing one
 // shows the quote it stands for.
 function AnswerText({ answer }: { answer: SearchAnswer }) {
   const byN = new Map(answer.citations.map((c) => [c.n, c]));
   return (
-    <p className="ask-text">
+    <p className="leading-relaxed">
       {answer.text.split(/(\[\d+\])/).map((part, i) => {
         const c = byN.get(Number(part.match(/^\[(\d+)\]$/)?.[1]));
         if (!c) return part;
         return (
-          <span key={i} className="cite">
-            <Link href={reviewLink(c)} aria-label={`Source ${c.n}: ${c.title}`}>
+          <span key={i} className="group relative">
+            <Link
+              to={reviewLink(c)}
+              aria-label={`Source ${c.n}: ${c.title}`}
+              className="bg-primary/15 text-primary mx-0.5 inline-grid size-5 place-items-center rounded-full align-[2px] text-[11px] font-semibold"
+            >
               {c.n}
             </Link>
-            <span className="cite-pop" role="tooltip">
-              {c.quote && <q>{c.quote}</q>}
-              <span className="meta">
+            <span
+              role="tooltip"
+              className="bg-popover text-popover-foreground invisible absolute bottom-full left-1/2 z-10 mb-2 w-72 -translate-x-1/2 space-y-1 rounded-lg border p-3 text-sm shadow-md group-focus-within:visible group-hover:visible"
+            >
+              {c.quote && <q className="block italic">{c.quote}</q>}
+              <span className="text-muted-foreground block">
                 {c.title}, {c.author}
               </span>
             </span>

@@ -1,19 +1,13 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { z } from "zod";
-import {
-  CopilotSidebar,
-  useAgent,
-  useAgentContext,
-  useConfigureSuggestions,
-  useFrontendTool,
-} from "@copilotkit/react-core/v2";
+import { AssistantRuntimeProvider, AuiConfig, AuiProvider, Suggestions, Tools, defineToolkit, useAui, useAuiState, type ThreadMessage } from "@assistant-ui/react";
+import { useAgUiRuntime, useAgUiSetState, useAgUiState, type AgUiAssistantRuntime } from "@assistant-ui/react-ag-ui";
+import { MessageSquareIcon, XIcon } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+import { Thread } from "@/components/assistant-ui/elements/thread.aui";
+import { Button } from "@/components/ui/button";
 import { ReviewForm } from "@/components/ReviewForm";
-import { useToolChips } from "@/components/ToolChip";
-import { usePersistedChat } from "@/components/usePersistedChat";
+import { ToolChip } from "@/components/ToolChip";
+import { chatAgent, runContext, useAgentContext } from "@/lib/agents";
 import { diffSentences } from "@/lib/sentenceDiff";
 import { type AgentState, type Draft, type Proposal, type Review, draftFromReview, emptyDraft } from "@/lib/types";
 
@@ -48,38 +42,75 @@ async function fetchReview(id: number): Promise<Review | null> {
   return res.ok ? res.json() : null;
 }
 
-// Clears the conversation only. An open form is the user's work, so it stays.
-// The agent keeps nothing between runs, so there's no server-side thread to
-// reset. Its own component so it can read the agent without making the header
-// below depend on AppShell's renders.
-function ClearChatButton() {
-  const { agent } = useAgent();
-  return (
-    <button
-      type="button"
-      className="chat-clear"
-      onClick={() => agent.setMessages([])}
-      disabled={agent.isRunning || agent.messages.length === 0}
-      title={agent.isRunning ? "Wait for the reply to finish" : "Start a new conversation"}
-    >
-      Clear
-    </button>
-  );
+// ---- Persistence -------------------------------------------------------
+// The conversation and the open form (with any pending suggestions) go to
+// sessionStorage so a reload doesn't wipe them. It's per tab and goes when the
+// tab closes. The agent keeps nothing between runs (see agent/main.py), so the
+// browser's copy is the only one. Storage can be unavailable (private mode,
+// blocked site data) or full; the chat still works, it just won't survive a reload.
+
+const KEY = "book-reviews:chat";
+type Saved = { messages?: ThreadMessage[]; form?: AgentState };
+
+function read(): Saved {
+  try {
+    return JSON.parse(sessionStorage.getItem(KEY) ?? "{}") as Saved;
+  } catch {
+    return {};
+  }
 }
 
-// Same header, plus a Clear button where CopilotKit would put its thread-drawer
-// launcher (we don't use threads). Must be a constant: CopilotSidebar builds its
-// chat view as a component memoised on `header`, so a new object each render
-// remounts the whole chat (scroll position included) on every streamed token.
-const CHAT_HEADER = {
-  children: ({ titleContent, closeButton }: { titleContent: React.ReactElement; closeButton: React.ReactElement }) => (
-    <header className="chat-header">
-      <ClearChatButton />
-      {titleContent}
-      {closeButton}
-    </header>
-  ),
+function write(patch: Saved) {
+  try {
+    sessionStorage.setItem(KEY, JSON.stringify({ ...read(), ...patch }));
+  } catch {}
+}
+
+// assistant-ui loads the saved conversation through a history adapter: a
+// chain of messages, each pointing at the one before.
+const savedHistory = {
+  async load() {
+    const messages = (read().messages ?? []).map((m) => ({ ...m, createdAt: new Date(m.createdAt) }));
+    return {
+      headId: messages.at(-1)?.id ?? null,
+      messages: messages.map((message, i) => ({ message, parentId: messages[i - 1]?.id ?? null })),
+    };
+  },
+  async append() {}, // the whole thread is written on every change instead
 };
+
+const RuntimeContext = createContext<AgUiAssistantRuntime | null>(null);
+
+function ChatRuntime({ children }: { children: ReactNode }) {
+  const runtime = useAgUiRuntime({
+    agent: chatAgent,
+    getRunContext: runContext,
+    showThinking: false,
+    adapters: { history: savedHistory },
+  });
+
+  // Messages change on every streamed token, so batch the writes.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = runtime.thread.subscribe(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const { messages, isLoading } = runtime.thread.getState();
+        if (!isLoading) write({ messages: [...messages] });
+      }, 250);
+    });
+    return () => {
+      unsubscribe();
+      clearTimeout(timer);
+    };
+  }, [runtime]);
+
+  return (
+    <RuntimeContext.Provider value={runtime}>
+      <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+    </RuntimeContext.Provider>
+  );
+}
 
 // Drops suggestions the draft already matches: accepted, typed in by hand, or
 // a review text with every change accepted or rejected.
@@ -95,33 +126,51 @@ function settled(draft: Draft, proposal: Proposal | null): Proposal | null {
   return Object.keys(left).length ? left : null;
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
-  const { agent } = useAgent();
-  const router = useRouter();
-  const pathname = usePathname();
-  useToolChips();
-  usePersistedChat(agent);
-  const { draft = null, proposal = null } = (agent.state ?? {}) as AgentState;
+export function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <ChatRuntime>
+      <Shell>{children}</Shell>
+    </ChatRuntime>
+  );
+}
+
+function Shell({ children }: { children: ReactNode }) {
+  const runtime = useContext(RuntimeContext)!;
+  const aui = useAui();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const viewingId = reviewIdFrom(pathname);
+  const agentBusy = useAuiState((s) => s.thread.isRunning);
+  const hasMessages = useAuiState((s) => s.thread.messages.length > 0);
+
+  // Shared state: the form is a view over the agent's `draft` (and its pending
+  // suggestions in `proposal`). Writing them here makes the change visible to
+  // the agent on its next run; the agent's update_draft tool writes them back.
+  const state = useAgUiState<AgentState>();
+  const setState = useAgUiSetState<AgentState>();
+  const { draft = null, proposal = null } = state ?? {};
+
+  // Restore the form saved before a reload, once; then keep the copy current.
+  useEffect(() => {
+    const form = read().form;
+    if (form?.draft) setState((s) => ({ ...s, ...form }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => write({ form: { draft, proposal } }), [draft, proposal]);
 
   const [query, setQuery] = useState("");
   const [askMode, setAskMode] = useState(false);
   const [reviewsVersion, setReviewsVersion] = useState(0);
   const reviewsChanged = useCallback(() => setReviewsVersion((v) => v + 1), []);
   // Open the chat by default only where it fits beside the page; on a phone
-  // it would cover the whole app. Decided after mount (no window during SSR).
-  const [chatOpen, setChatOpen] = useState(false);
-  useEffect(() => setChatOpen(window.matchMedia("(min-width: 900px)").matches), []);
+  // it would cover the whole app.
+  const [chatOpen, setChatOpen] = useState(() => matchMedia("(min-width: 900px)").matches);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Shared state: the form is just a view over agent.state.draft (and the
-  // agent's pending suggestions in agent.state.proposal). Writing them here
-  // makes the change visible to the agent on its next run; the agent's
-  // update_draft tool writes them back and the form re-renders.
   const setForm = (next: Draft | null, nextProposal: Proposal | null = proposal) => {
     setError(null);
-    agent.setState({ ...agent.state, draft: next, proposal: next ? settled(next, nextProposal) : null });
+    setState((s) => ({ ...s, draft: next, proposal: next ? settled(next, nextProposal) : null }));
   };
   const setDraft = (next: Draft | null) => setForm(next);
 
@@ -139,7 +188,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const saved: Review = await res.json();
     setDraft(null);
     reviewsChanged();
-    if (!draft.id) router.push(`/reviews/${saved.id}`);
+    if (!draft.id) navigate(`/reviews/${saved.id}`);
   };
 
   const editReview = (r: Review) => setForm(draftFromReview(r), null);
@@ -149,37 +198,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     await fetch(`/api/reviews/${r.id}`, { method: "DELETE" });
     if (draft?.id === r.id) setDraft(null);
     reviewsChanged();
-    if (viewingId === r.id) router.push("/");
+    if (viewingId === r.id) navigate("/");
+  };
+
+  // Clears the conversation only. An open form is the user's work, so it
+  // stays (resetting the thread also resets the agent state, so put it back).
+  const clearChat = () => {
+    runtime.thread.reset();
+    setState({ draft, proposal });
+    write({ messages: [] });
   };
 
   // ---- Navigation tools ------------------------------------------------
   // Frontend tools: the agent calls them like its own tools, but they run
   // here in the browser. CopilotKitMiddleware on the agent side adds them to
-  // the model's tool list and hands the call back to us; the result goes to
-  // the model on a follow-up run.
+  // the model's tool list (they arrive as RunAgentInput.tools) and the result
+  // goes back to the model on a follow-up run.
   //
   // These only move the user around. Anything that changes the form (like
-  // edit_review) is an agent-side tool: the run that follows a frontend tool
-  // starts from the agent's last state snapshot, so a draft written here by
-  // agent.setState would be lost.
-  //
-  // CopilotKit compares deps by JSON-serialising them, so only plain values go
-  // there. `router` is a stable instance.
-
-  useFrontendTool(
-    {
-      name: "show_reviews",
+  // edit_review) is an agent-side tool, so the state change and the reply
+  // happen in one run.
+  const toolkit = defineToolkit({
+    show_reviews: {
       description:
         "Take the user to the list of reviews. `search` is what goes in the search box: free text in " +
-        "web-search syntax plus field filters (title:x, author:\"le guin\", genre:horror, reviewer:sam, " +
+        'web-search syntax plus field filters (title:x, author:"le guin", genre:horror, reviewer:sam, ' +
         "rating:>=4; a leading - excludes, e.g. -genre:horror). Pass an empty string to clear " +
         "the filter; omit it to keep the current one. Returns how many reviews are shown.",
-      parameters: z.object({ search: z.string().optional() }),
-      handler: async ({ search }) => {
+      parameters: { type: "object", properties: { search: { type: "string" } } },
+      execute: async ({ search }: { search?: string }) => {
         const q = (search ?? query).trim();
         if (search !== undefined) setQuery(search);
         setAskMode(false);
-        router.push("/");
+        navigate("/");
         if (!q) return "Showing the full list of reviews.";
         // Same request the list page makes, so the model hears about an empty
         // result instead of announcing a list the user can't see.
@@ -190,22 +241,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           : `No reviews match "${q}"; the list on screen is empty. Try different words.`;
       },
     },
-    [query],
-  );
-
-  useFrontendTool(
-    {
-      name: "open_review",
+    open_review: {
       description: "Show one review on its own page, by id. Use this when the user wants to see or read a review.",
-      parameters: z.object({ id: z.number().int() }),
-      handler: async ({ id }) => {
+      parameters: { type: "object", properties: { id: { type: "integer" } }, required: ["id"] },
+      execute: async ({ id }: { id: number }) => {
         const r = await fetchReview(id);
         if (!r) return `There is no review #${id}.`;
-        router.push(`/reviews/${id}`);
+        navigate(`/reviews/${id}`);
         return `Showing review #${id}: "${r.title}" by ${r.author}.`;
       },
     },
-  );
+  });
 
   useAgentContext({
     description: "Which screen the user is on",
@@ -219,27 +265,43 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     ].join("; "),
   });
 
-  useConfigureSuggestions(
-    {
-      instructions: draft
-        ? "Suggest short ways the assistant could help finish this review form, based on what's still empty."
+  const suggestions = useMemo(
+    () =>
+      draft
+        ? [
+            { title: "Fill in the rest", label: "of the form", prompt: "Fill in whatever is still empty in the form." },
+            { title: "Tighten the review", label: "shorter and clearer", prompt: "Tighten up the review text." },
+          ]
         : viewingId
-          ? "Suggest short follow-ups about the review on screen: similar books, other reviews by the same person, or editing it."
-          : "Suggest short requests: finding or opening a particular review, questions about the saved reviews, or starting a new one.",
-      maxSuggestions: 3,
-    },
+          ? [
+              { title: "Similar books", label: "to this one", prompt: "Find reviews of books similar to this one." },
+              { title: "Edit this review", label: "in the form", prompt: "Open this review in the editor." },
+            ]
+          : [
+              { title: "Best-rated genre", label: "across all reviews", prompt: "Which genre gets the best ratings?" },
+              { title: "Start a review", label: "with my help", prompt: "Help me write a new review." },
+            ],
     [!!draft, viewingId],
   );
 
+  const config = AuiConfig({ tools: Tools({ toolkit }), suggestions: Suggestions(suggestions) });
+
   return (
     <UiContext.Provider value={{ query, setQuery, askMode, setAskMode, reviewsVersion, editReview, removeReview }}>
-      <div className="shell">
-        <main>
-          <header className="top">
-            <h1>
-              <Link href="/">Book Reviews</Link>
+      <div className={chatOpen ? "min-[900px]:grid min-[900px]:grid-cols-[1fr_420px]" : ""}>
+        <main className="mx-auto w-full max-w-3xl space-y-5 px-4 pt-8 pb-16">
+          <header className="flex items-center justify-between gap-3">
+            <h1 className="text-2xl font-semibold">
+              <Link to="/">Book Reviews</Link>
             </h1>
-            {!draft && <button onClick={() => setDraft(emptyDraft())}>New review</button>}
+            <div className="flex gap-2">
+              {!draft && <Button onClick={() => setDraft(emptyDraft())}>New review</Button>}
+              {!chatOpen && (
+                <Button variant="outline" size="icon" onClick={() => setChatOpen(true)} aria-label="Open the assistant">
+                  <MessageSquareIcon />
+                </Button>
+              )}
+            </div>
           </header>
 
           {draft && (
@@ -252,25 +314,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               onCancel={() => setDraft(null)}
               saving={saving}
               error={error}
-              agentBusy={agent.isRunning}
+              agentBusy={agentBusy}
             />
           )}
 
           {children}
         </main>
 
-        <CopilotSidebar
-          open={chatOpen}
-          onOpenChange={setChatOpen}
-          width={420}
-          header={CHAT_HEADER}
-          labels={{
-            modalHeaderTitle: "Review helper",
-            welcomeMessageText:
-              "Ask me about the reviews, have me find and open one, or open a new review and I'll help you write it.",
-            chatInputPlaceholder: "Ask about reviews…",
-          }}
-        />
+        {chatOpen && (
+          <aside className="bg-background fixed inset-0 z-20 flex flex-col border-l min-[900px]:sticky min-[900px]:top-0 min-[900px]:h-dvh">
+            <header className="flex items-center justify-between border-b px-3 py-2">
+              <Button variant="ghost" size="sm" onClick={clearChat} disabled={agentBusy || !hasMessages}>
+                Clear
+              </Button>
+              <span className="text-sm font-medium">Review helper</span>
+              <Button variant="ghost" size="icon-sm" onClick={() => setChatOpen(false)} aria-label="Close the assistant">
+                <XIcon />
+              </Button>
+            </header>
+            <div className="min-h-0 flex-1">
+              <AuiProvider extends={aui} config={config}>
+                <Thread components={{ ToolFallback: ToolChip, ToolGroup: ({ children }) => <>{children}</> }} autoFocus={false} />
+              </AuiProvider>
+            </div>
+          </aside>
+        )}
       </div>
     </UiContext.Provider>
   );

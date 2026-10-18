@@ -1,8 +1,8 @@
 export function Rating({ value }: { value: number }) {
   return (
-    <span className="rating" aria-label={`${value} out of 5`}>
+    <span className="text-star shrink-0 tracking-wider" aria-label={`${value} out of 5`}>
       {"★".repeat(value)}
-      <span className="dim">{"★".repeat(5 - value)}</span>
+      <span className="opacity-25">{"★".repeat(5 - value)}</span>
     </span>
   );
 }

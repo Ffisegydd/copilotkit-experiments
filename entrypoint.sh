@@ -1,9 +1,10 @@
 #!/bin/bash
-# Starts the three processes, each as its own user with only the env it needs.
-# If any exits, the container exits.
+# Starts both processes, each as its own user with only the env it needs.
+# If either exits, the container exits.
 set -euo pipefail
 
-[ -n "${OPENAI_API_KEY:-}" ] || echo "[entrypoint] WARNING: OPENAI_API_KEY is not set; the chat agent will fail."
+[ -n "${OPENAI_API_KEY:-}" ] || echo "[entrypoint] WARNING: OPENAI_API_KEY is not set; the agents will fail."
+[ -n "${MCP_TOKEN:-}" ] || echo "[entrypoint] MCP_TOKEN is not set; the MCP server at /mcp is off."
 
 cd /app/agent
 env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/nonexistent \
@@ -14,8 +15,10 @@ env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/nonexistent \
   /app/agent/.venv/bin/python main.py &
 AGENT_PID=$!
 
-[ -n "${MCP_TOKEN:-}" ] || echo "[entrypoint] MCP_TOKEN is not set; the MCP server at /mcp is off."
 env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/nonexistent \
+  API_HOST=0.0.0.0 API_PORT=3000 \
+  WEB_DIST=/app/web/dist \
+  AGENT_URL=http://127.0.0.1:8123 \
   OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
   OPENAI_MODEL="${OPENAI_MODEL:-gpt-5.4}" \
   APP_DATABASE_URL="$APP_DATABASE_URL" \
@@ -25,13 +28,5 @@ env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/nonexistent \
   /app/agent/.venv/bin/python api.py &
 API_PID=$!
 
-cd /app/web
-env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/nonexistent NODE_ENV=production \
-  HOSTNAME=0.0.0.0 PORT=3000 \
-  AGENT_URL=http://127.0.0.1:8123 \
-  setpriv --reuid=web --regid=web --clear-groups --no-new-privs \
-  node server.js &
-WEB_PID=$!
-
-trap 'kill $AGENT_PID $API_PID $WEB_PID 2>/dev/null' TERM INT
-wait -n $AGENT_PID $API_PID $WEB_PID
+trap 'kill $AGENT_PID $API_PID 2>/dev/null' TERM INT
+wait -n $AGENT_PID $API_PID

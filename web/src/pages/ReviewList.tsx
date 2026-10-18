@@ -1,14 +1,14 @@
-"use client";
-
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useAgentContext } from "@copilotkit/react-core/v2";
+import { Link } from "react-router";
 import { AskPanel, useAsk } from "@/components/AskPanel";
-import { Rating } from "@/components/Rating";
 import { useUi } from "@/components/AppShell";
+import { Rating } from "@/components/Rating";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useAgentContext } from "@/lib/agents";
 import type { Review } from "@/lib/types";
 
-export default function ReviewList() {
+export function ReviewList() {
   const { query, setQuery, askMode, setAskMode, reviewsVersion, editReview, removeReview } = useUi();
   const [reviews, setReviews] = useState<Review[]>([]);
   const { agent: searchAgent, ask } = useAsk();
@@ -45,23 +45,23 @@ export default function ReviewList() {
   return (
     <>
       <form
-        className="search"
+        className="flex items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           if (askMode) submit(question);
         }}
       >
-        <div className="mode" role="group" aria-label="Search mode">
-          <button type="button" aria-pressed={!askMode} onClick={() => setAskMode(false)}>
+        <div className="flex shrink-0 rounded-lg border p-0.5" role="group" aria-label="Search mode">
+          <Button type="button" size="sm" variant={askMode ? "ghost" : "secondary"} aria-pressed={!askMode} onClick={() => setAskMode(false)}>
             Search
-          </button>
-          <button type="button" aria-pressed={askMode} onClick={() => setAskMode(true)}>
+          </Button>
+          <Button type="button" size="sm" variant={askMode ? "secondary" : "ghost"} aria-pressed={askMode} onClick={() => setAskMode(true)}>
             Ask
-          </button>
+          </Button>
         </div>
         {askMode ? (
           <>
-            <input
+            <Input
               type="search"
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
@@ -70,18 +70,18 @@ export default function ReviewList() {
               autoFocus
             />
             {searchAgent.isRunning ? (
-              <button type="button" className="secondary" onClick={() => searchAgent.abortRun()}>
+              <Button type="button" variant="outline" onClick={() => searchAgent.abortRun()}>
                 Stop
-              </button>
+              </Button>
             ) : (
-              <button type="submit" disabled={!question.trim()}>
+              <Button type="submit" disabled={!question.trim()}>
                 Ask
-              </button>
+              </Button>
             )}
           </>
         ) : (
           <>
-            <input
+            <Input
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -89,7 +89,7 @@ export default function ReviewList() {
               aria-label="Search reviews"
             />
             {query.trim() && (
-              <span className="meta">
+              <span className="text-muted-foreground shrink-0 text-sm">
                 {reviews.length} {reviews.length === 1 ? "match" : "matches"}
               </span>
             )}
@@ -100,15 +100,15 @@ export default function ReviewList() {
       {askMode ? (
         <AskPanel onExample={submit} />
       ) : (
-        <ul className="list">
+        <ul className="space-y-3">
           {reviews.map((r) => (
-            <li key={r.id} className="card">
-              <div className="item-head">
+            <li key={r.id} className="bg-card space-y-3 rounded-xl border p-5">
+              <div className="flex justify-between gap-3">
                 <div>
-                  <h3>
-                    <Link href={`/reviews/${r.id}`}>{r.title}</Link>
+                  <h3 className="font-semibold">
+                    <Link to={`/reviews/${r.id}`} className="hover:underline">{r.title}</Link>
                   </h3>
-                  <p className="meta">
+                  <p className="text-muted-foreground text-sm">
                     {r.author}
                     {r.genre && ` · ${r.genre}`}
                     {r.reviewer && ` · reviewed by ${r.reviewer}`}
@@ -116,22 +116,22 @@ export default function ReviewList() {
                 </div>
                 <Rating value={r.rating} />
               </div>
-              <p className="body clamp">{r.review}</p>
-              <div className="actions">
-                <Link className="button secondary" href={`/reviews/${r.id}`}>
-                  Read
-                </Link>
-                <button className="secondary" onClick={() => editReview(r)}>
+              <p className="line-clamp-3 leading-relaxed">{r.review}</p>
+              <div className="flex justify-end gap-2">
+                <Button asChild variant="outline" size="sm">
+                  <Link to={`/reviews/${r.id}`}>Read</Link>
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => editReview(r)}>
                   Edit
-                </button>
-                <button className="danger" onClick={() => removeReview(r)}>
+                </Button>
+                <Button variant="outline" size="sm" className="text-destructive" onClick={() => removeReview(r)}>
                   Delete
-                </button>
+                </Button>
               </div>
             </li>
           ))}
           {reviews.length === 0 && (
-            <li className="empty">{query.trim() ? "No reviews match that search." : "No reviews yet."}</li>
+            <li className="text-muted-foreground py-8 text-center">{query.trim() ? "No reviews match that search." : "No reviews yet."}</li>
           )}
         </ul>
       )}

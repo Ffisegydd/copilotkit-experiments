@@ -1,25 +1,32 @@
-"""The reviews API: REST for the browser at /api/reviews and an MCP server for
-other agents at /mcp, both thin wrappers over src/reviews.py.
+"""The app's one public process. It serves:
 
-This is the only process with the read-write `app_rw` credentials. It runs
-separately from the chat agent (main.py), which only ever gets `agent_ro`.
-It also holds an `agent_ro` connection for the MCP `ask_reviews` tool, so SQL
-written by the model never runs on the read-write role.
+  /                 the web app, built by Vite into web/dist
+  /api/reviews      REST for the browser
+  /mcp              an MCP server for other agents
+  /agent/*          AG-UI runs, streamed through to the agent process
 
-Next.js rewrites /api/reviews/* and /mcp here (web/next.config.ts), so the
-browser and MCP clients both use the app's one published port.
+REST and MCP are thin wrappers over src/reviews.py.
+
+This is the only process with the read-write `app_rw` credentials. The chat
+agent (main.py) runs separately on loopback and only ever gets `agent_ro`.
+This process also holds an `agent_ro` connection for the MCP `ask_reviews`
+tool, so SQL written by the model never runs on the read-write role.
 """
 
 import os
 import secrets
 from contextlib import AsyncExitStack, asynccontextmanager
+from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import AccessToken, TokenVerifier
@@ -167,8 +174,12 @@ def _not_found(id: int):
     raise ToolError(f"No review with id {id}.")
 
 
-def create_app(rw: ReadWriteDB, ro: ReviewsDB, mcp_token: str | None) -> FastAPI:
+def create_app(
+    rw: ReadWriteDB, ro: ReviewsDB, mcp_token: str | None, agent_url: str, web_dist: Path | None
+) -> FastAPI:
     mcp_app = create_mcp(rw, ro, mcp_token).http_app(path="/mcp", stateless_http=True) if mcp_token else None
+    # No read timeout: a run streams for as long as the agent works.
+    agent = httpx.AsyncClient(base_url=agent_url, timeout=httpx.Timeout(10, read=None))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -176,6 +187,7 @@ def create_app(rw: ReadWriteDB, ro: ReviewsDB, mcp_token: str | None) -> FastAPI
             for db in (rw, ro):
                 await db.open()
                 stack.push_async_callback(db.close)
+            stack.push_async_callback(agent.aclose)
             if mcp_app:
                 await stack.enter_async_context(mcp_app.lifespan(app))
             yield
@@ -215,6 +227,37 @@ def create_app(rw: ReadWriteDB, ro: ReviewsDB, mcp_token: str | None) -> FastAPI
     async def delete_review(id: int):
         return Response(status_code=204) if await reviews.delete(rw, id) else not_found()
 
+    @app.post("/agent/{path:path}")
+    async def agent_run(path: str, request: Request):
+        """The browser's only way to the agents: /agent/ is the chat agent,
+        /agent/search the Ask agent. The AG-UI event stream (SSE) is passed
+        through as it arrives."""
+        upstream = await agent.send(
+            agent.build_request(
+                "POST",
+                f"/{path}",
+                content=await request.body(),
+                headers={k: v for k, v in request.headers.items() if k in ("content-type", "accept")},
+            ),
+            stream=True,
+        )
+        return StreamingResponse(
+            upstream.aiter_raw(),
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type"),
+            background=BackgroundTask(upstream.aclose),
+        )
+
+    if web_dist:
+        # The built web app. React Router handles these paths in the browser,
+        # so each one gets index.html; keep this list in step with the routes
+        # in web/src/main.tsx.
+        index = web_dist / "index.html"
+        app.mount("/assets", StaticFiles(directory=web_dist / "assets"), name="assets")
+        app.add_api_route("/", lambda: FileResponse(index), include_in_schema=False)
+        app.add_api_route("/reviews/{id}", lambda: FileResponse(index), include_in_schema=False)
+        app.add_api_route("/favicon.svg", lambda: FileResponse(web_dist / "favicon.svg"), include_in_schema=False)
+
     if mcp_app:
         app.mount("/", mcp_app)  # last, so the routes above match first
     else:
@@ -222,13 +265,19 @@ def create_app(rw: ReadWriteDB, ro: ReviewsDB, mcp_token: str | None) -> FastAPI
     return app
 
 
+_dist = Path(os.getenv("WEB_DIST", Path(__file__).parent.parent / "web" / "dist"))
+
 app = create_app(
     ReadWriteDB(os.environ["APP_DATABASE_URL"]),
     ReviewsDB(os.environ["AGENT_DATABASE_URL"], max_size=2),
     os.getenv("MCP_TOKEN") or None,
+    os.getenv("AGENT_URL", "http://127.0.0.1:8123"),
+    # In dev Vite serves the web app and proxies the rest here, so there may be no build.
+    _dist if (_dist / "index.html").exists() else None,
 )
 
 
 if __name__ == "__main__":
-    # Loopback only: Next.js proxies to it.
-    uvicorn.run(app, host="127.0.0.1", port=int(os.getenv("API_PORT", "8124")))
+    # The container sets API_HOST=0.0.0.0 and API_PORT=3000: this is the
+    # published port. Locally it stays on loopback behind Vite.
+    uvicorn.run(app, host=os.getenv("API_HOST", "127.0.0.1"), port=int(os.getenv("API_PORT", "8124")))

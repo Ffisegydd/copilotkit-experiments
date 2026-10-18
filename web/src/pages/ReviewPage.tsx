@@ -1,19 +1,17 @@
-"use client";
-
-import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { useAgentContext } from "@copilotkit/react-core/v2";
-import { Rating } from "@/components/Rating";
+import { Link, useParams, useSearchParams } from "react-router";
 import { useUi } from "@/components/AppShell";
+import { Rating } from "@/components/Rating";
+import { Button } from "@/components/ui/button";
+import { useAgentContext } from "@/lib/agents";
 import type { Review } from "@/lib/types";
 
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
 
-export default function ReviewDetail() {
-  const id = Number(useParams<{ id: string }>().id);
+export function ReviewPage() {
+  const id = Number(useParams().id);
   // Set when arriving from a search answer's citation: the passage to mark.
-  const quote = useSearchParams().get("quote");
+  const quote = useSearchParams()[0].get("quote");
   const { reviewsVersion, editReview, removeReview } = useUi();
   // undefined = loading, null = not found
   const [review, setReview] = useState<Review | null | undefined>(undefined);
@@ -31,22 +29,22 @@ export default function ReviewDetail() {
     value: review ?? (review === null ? `Review #${id} doesn't exist` : "Loading"),
   });
 
-  if (review === undefined) return <p className="meta">Loading…</p>;
+  if (review === undefined) return <p className="text-muted-foreground">Loading…</p>;
 
   return (
-    <article className="detail">
-      <Link className="back" href="/">
+    <article className="space-y-3">
+      <Link className="text-muted-foreground text-sm hover:underline" to="/">
         ← All reviews
       </Link>
 
       {review === null ? (
-        <p className="empty">There's no review #{id}. It may have been deleted.</p>
+        <p className="text-muted-foreground py-8 text-center">There's no review #{id}. It may have been deleted.</p>
       ) : (
-        <div className="card">
-          <div className="item-head">
+        <div className="bg-card space-y-4 rounded-xl border p-5">
+          <div className="flex justify-between gap-3">
             <div>
-              <h2>{review.title}</h2>
-              <p className="meta">
+              <h2 className="text-xl font-semibold">{review.title}</h2>
+              <p className="text-muted-foreground text-sm">
                 {review.author}
                 {review.genre && ` · ${review.genre}`}
               </p>
@@ -54,23 +52,22 @@ export default function ReviewDetail() {
             <Rating value={review.rating} />
           </div>
 
-          <p className="body">
-            {review.review ? <Highlighted text={review.review} quote={quote} /> : <span className="meta">No review text.</span>}
+          <p className="leading-relaxed whitespace-pre-wrap">
+            {review.review ? <Highlighted text={review.review} quote={quote} /> : <span className="text-muted-foreground">No review text.</span>}
           </p>
 
-          <p className="meta">
+          <p className="text-muted-foreground text-sm">
             {review.reviewer ? `Reviewed by ${review.reviewer}` : "Reviewed"} on {formatDate(review.created_at)}
-            {formatDate(review.updated_at) !== formatDate(review.created_at) &&
-              ` · edited ${formatDate(review.updated_at)}`}
+            {formatDate(review.updated_at) !== formatDate(review.created_at) && ` · edited ${formatDate(review.updated_at)}`}
           </p>
 
-          <div className="actions">
-            <button className="secondary" onClick={() => editReview(review)}>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => editReview(review)}>
               Edit
-            </button>
-            <button className="danger" onClick={() => removeReview(review)}>
+            </Button>
+            <Button variant="outline" size="sm" className="text-destructive" onClick={() => removeReview(review)}>
               Delete
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -91,7 +88,9 @@ function Highlighted({ text, quote }: { text: string; quote: string | null }) {
   return (
     <>
       {text.slice(0, at)}
-      <mark ref={mark}>{quote}</mark>
+      <mark ref={mark} className="bg-star/30 text-foreground rounded px-0.5">
+        {quote}
+      </mark>
       {text.slice(at + quote.length)}
     </>
   );

@@ -112,5 +112,5 @@ app = create_app(AgentContext(db=ReviewsDB(os.environ["AGENT_DATABASE_URL"])))
 
 
 if __name__ == "__main__":
-    # Bound to loopback: only the Next.js runtime in the same container talks to it.
+    # Bound to loopback: only the api process (api.py) in the same container talks to it.
     uvicorn.run(app, host="127.0.0.1", port=int(os.getenv("AGENT_PORT", "8123")))

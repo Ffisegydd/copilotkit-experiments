@@ -30,9 +30,9 @@ services:
       - ./db/migrations:/db/migrations:ro
     command: ["--wait", "up"]
 
-  # One container: Next.js (UI + CopilotKit runtime), the Python api (reviews
-  # REST + MCP) and the LangGraph agent. Only port 3000 is published; the api
-  # and the agent listen on 127.0.0.1 inside the container.
+  # One container, Python only: the api (web app, reviews REST, MCP, and a
+  # proxy to the agent) on :3000, published, and the LangGraph agent on
+  # 127.0.0.1 inside the container.
   app:
     build: .
     depends_on:
@@ -50,7 +50,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp:mode=1777
-      - /app/web/.next/cache:mode=1777
 
 volumes:
   pgdata:
